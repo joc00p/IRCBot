@@ -112,6 +112,13 @@ public sealed class ControlInterface(BotHost host, int port, string? password)
             case BotCommands.Say:
                 return host.Say(req.Arg("id"), req.Arg("target"), req.Arg("text")) ? Ok("Sent") : Fail("No such bot");
 
+            case BotCommands.Events:
+            {
+                long since = long.TryParse(req.Arg("since"), out var c) ? c : 0;
+                var (events, cursor) = host.Events.Since(since);
+                return new BotResponse { Ok = true, Events = events, Cursor = cursor };
+            }
+
             default:
                 return Fail($"Unknown command: {req.Cmd}");
         }

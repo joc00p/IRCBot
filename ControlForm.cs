@@ -42,6 +42,15 @@ public sealed class ControlForm : Form
         BackColor = Color.FromArgb(24, 24, 24), ForeColor = Color.Gainsboro, Font = new Font("Consolas", 9)
     };
 
+    // Second console: live IRC-level activity for the bots (connect, TLS,
+    // register, join, errors…), streamed from the host's event log.
+    private readonly TextBox _botLog = new()
+    {
+        Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill,
+        BackColor = Color.FromArgb(16, 24, 16), ForeColor = Color.FromArgb(170, 230, 170), Font = new Font("Consolas", 9)
+    };
+    private long _eventCursor;
+
     public ControlForm()
     {
         Text = "IRC Bot Remote Control";
@@ -112,10 +121,28 @@ public sealed class ControlForm : Form
         botsPanel.Controls.Add(actions);
 
         split.Panel1.Controls.Add(botsPanel);
-        split.Panel2.Controls.Add(_log);
+
+        // Two stacked consoles: panel/control activity on top, bot IRC activity below.
+        var logs = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
+        logs.Panel1.Controls.Add(WithHeader(_log, "Activity log"));
+        logs.Panel2.Controls.Add(WithHeader(_botLog, "Bot connection activity"));
+        split.Panel2.Controls.Add(logs);
 
         Controls.Add(split);
         Controls.Add(bar);
+    }
+
+    private static Control WithHeader(Control inner, string title)
+    {
+        var panel = new Panel { Dock = DockStyle.Fill };
+        inner.Dock = DockStyle.Fill;
+        panel.Controls.Add(inner);
+        panel.Controls.Add(new Label
+        {
+            Text = title, Dock = DockStyle.Top, Height = 18,
+            ForeColor = Color.Gray, Padding = new Padding(4, 2, 0, 0)
+        });
+        return panel;
     }
 
     // ── Roster persistence ──────────────────────────────────────────────
@@ -252,6 +279,8 @@ public sealed class ControlForm : Form
             SetStatus($"🔒 Connected (TLS) to {_host.Text}:{port}", true);
             _connectBtn.Text = "Disconnect";
             Log($"Connected over TLS to bots at {_host.Text}:{port}");
+            _eventCursor = 0;              // pull recent bot-activity history
+            _botLog.Clear();
             await SyncWithHostAsync();
             if (_autoRefresh.Checked) _timer.Start();
             await RefreshAsync();
@@ -301,6 +330,15 @@ public sealed class ControlForm : Form
             {
                 var r = await _client.SimpleAsync(BotCommands.List);
                 if (r.Bots != null) live = r.Bots.ToDictionary(b => b.Id);
+
+                // Drain new bot-activity events into the second console.
+                var er = await _client.ActionAsync(BotCommands.Events, ("since", _eventCursor.ToString()));
+                if (er.Events != null)
+                {
+                    foreach (var e in er.Events)
+                        _botLog.AppendText($"[{e.Utc.ToLocalTime():HH:mm:ss}] {e.Nick}: {e.Text}{Environment.NewLine}");
+                    _eventCursor = er.Cursor;
+                }
             }
             catch (Exception ex) { Log($"Refresh error: {ex.Message}"); }
         }

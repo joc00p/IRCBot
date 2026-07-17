@@ -27,15 +27,18 @@ public sealed class IrcBot
 
     private readonly object _lock = new();
     private readonly HashSet<string> _channels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly EventLog? _events;
 
     private TcpClient? _tcp;
     private StreamWriter? _writer;
     private CancellationTokenSource? _cts;
 
-    public IrcBot(string id, BotConfig cfg)
+    public IrcBot(string id, BotConfig cfg, EventLog? events = null)
     {
         Id = id;
+        _events = events;
         Apply(cfg);
+        Event("created");
     }
 
     private void Apply(BotConfig cfg)
@@ -49,6 +52,14 @@ public sealed class IrcBot
         RealName = cfg.RealName;
         _channels.Clear();
         foreach (var c in cfg.Channels) _channels.Add(Normalize(c));
+    }
+
+    // Record an activity line: updates LastEvent (for the grid) and appends to
+    // the shared event log (for the bot-activity console).
+    private void Event(string text)
+    {
+        lock (_lock) LastEvent = text;
+        _events?.Append(Id, Nick, text);
     }
 
     public BotInfo ToInfo()
@@ -67,13 +78,14 @@ public sealed class IrcBot
     // connection is never mutated out from under itself.
     public bool UpdateConfig(BotConfig cfg)
     {
+        bool ok;
         lock (_lock)
         {
-            if (Status is BotStatus.Connecting or BotStatus.Connected) return false;
-            Apply(cfg);
-            LastEvent = "edited";
-            return true;
+            if (Status is BotStatus.Connecting or BotStatus.Connected) ok = false;
+            else { Apply(cfg); ok = true; }
         }
+        if (ok) Event("reconfigured");
+        return ok;
     }
 
     public void Start()
@@ -83,9 +95,9 @@ public sealed class IrcBot
         {
             if (Status is BotStatus.Connecting or BotStatus.Connected) return;
             Status = BotStatus.Connecting;
-            LastEvent = "connecting";
             cts = _cts = new CancellationTokenSource();
         }
+        Event($"connecting to {Host}:{Port}{(UseTls ? " over TLS" : "")}");
         _ = RunAsync(cts);
     }
 
@@ -98,9 +110,9 @@ public sealed class IrcBot
             cts = _cts;
             w = _writer;
             Status = BotStatus.Stopped;
-            LastEvent = "stopped";
             ConnectedUtc = null;
         }
+        Event("stopped");
         try { w?.WriteLine("QUIT :bye"); } catch { }
         try { cts?.Cancel(); } catch { }
         try { _tcp?.Close(); } catch { }
@@ -110,7 +122,8 @@ public sealed class IrcBot
     {
         var ch = Normalize(channel);
         bool connected;
-        lock (_lock) { _channels.Add(ch); connected = Status == BotStatus.Connected; LastEvent = $"join {ch}"; }
+        lock (_lock) { _channels.Add(ch); connected = Status == BotStatus.Connected; }
+        Event($"JOIN {ch}");
         if (connected) Send($"JOIN {ch}");
     }
 
@@ -118,13 +131,17 @@ public sealed class IrcBot
     {
         var ch = Normalize(channel);
         bool connected;
-        lock (_lock) { _channels.Remove(ch); connected = Status == BotStatus.Connected; LastEvent = $"part {ch}"; }
+        lock (_lock) { _channels.Remove(ch); connected = Status == BotStatus.Connected; }
+        Event($"PART {ch}");
         if (connected) Send($"PART {ch}");
     }
 
     public void Say(string target, string text)
     {
-        lock (_lock) { if (Status != BotStatus.Connected) return; LastEvent = $"say {target}"; }
+        bool connected;
+        lock (_lock) connected = Status == BotStatus.Connected;
+        if (!connected) return;
+        Event($"PRIVMSG {target}");
         Send($"PRIVMSG {target} :{text}");
     }
 
@@ -135,6 +152,7 @@ public sealed class IrcBot
         {
             _tcp = new TcpClient();
             await _tcp.ConnectAsync(Host, Port, ct);
+            Event("socket connected");
 
             Stream stream = _tcp.GetStream();
             if (UseTls)
@@ -147,6 +165,7 @@ public sealed class IrcBot
                     TargetHost = Host,
                     EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
                 }, ct);
+                Event($"TLS established ({ssl.SslProtocol})");
                 stream = ssl;
             }
 
@@ -155,7 +174,8 @@ public sealed class IrcBot
 
             var ident = string.IsNullOrWhiteSpace(Ident) ? Nick : Ident;
             var real = string.IsNullOrWhiteSpace(RealName) ? $"IRCBot {Nick}" : RealName;
-            if (!string.IsNullOrEmpty(Password)) Send($"PASS {Password}");
+            if (!string.IsNullOrEmpty(Password)) { Event("sent PASS (hidden)"); Send($"PASS {Password}"); }
+            Event($"registering as {Nick} (ident {ident})");
             Send($"NICK {Nick}");
             Send($"USER {ident} 0 * :{real}");
 
@@ -169,28 +189,30 @@ public sealed class IrcBot
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            // Only report the failure if this is still the active run — a newer
-            // Start() may have superseded us after a rapid Stop/Start.
+            // Only report if this is still the active run — a newer Start()
+            // may have superseded us after a rapid Stop/Start.
+            bool owner;
             lock (_lock)
             {
-                if (ReferenceEquals(_cts, cts))
-                {
-                    Status = BotStatus.Error;
-                    LastEvent = $"error: {ex.Message}";
-                    ConnectedUtc = null;
-                }
+                owner = ReferenceEquals(_cts, cts);
+                if (owner) { Status = BotStatus.Error; ConnectedUtc = null; }
             }
+            if (owner) Event($"error: {ex.Message}");
             return;
         }
 
+        bool stillOwner, wasStopped;
         lock (_lock)
         {
-            if (ReferenceEquals(_cts, cts))
+            stillOwner = ReferenceEquals(_cts, cts);
+            wasStopped = Status == BotStatus.Stopped;
+            if (stillOwner)
             {
-                if (Status != BotStatus.Stopped) { Status = BotStatus.Stopped; LastEvent = "disconnected"; }
+                if (!wasStopped) Status = BotStatus.Stopped;
                 ConnectedUtc = null;
             }
         }
+        if (stillOwner && !wasStopped) Event("disconnected");
     }
 
     private void HandleLine(string raw)
@@ -199,6 +221,7 @@ public sealed class IrcBot
         if (raw.StartsWith("PING", StringComparison.OrdinalIgnoreCase))
         {
             var arg = raw.Length > 5 ? raw[5..].TrimStart(':') : "";
+            Event("PING/PONG");
             Send($"PONG :{arg}");
             return;
         }
@@ -219,14 +242,15 @@ public sealed class IrcBot
             {
                 Status = BotStatus.Connected;
                 ConnectedUtc = DateTime.UtcNow;
-                LastEvent = "connected";
                 chans = _channels.ToArray();
             }
-            foreach (var ch in chans) Send($"JOIN {ch}");
+            Event("connected (registered)");
+            foreach (var ch in chans) { Event($"joining {ch}"); Send($"JOIN {ch}"); }
         }
         else if (cmd == "433") // nick in use → append suffix and retry
         {
-            lock (_lock) { Nick += "_"; LastEvent = "nick in use, retrying"; }
+            lock (_lock) Nick += "_";
+            Event($"nick in use, retrying as {Nick}");
             Send($"NICK {Nick}");
         }
     }

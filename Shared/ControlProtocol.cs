@@ -18,6 +18,7 @@ public static class BotCommands
     public const string Join   = "JOIN";   // args: id, channel
     public const string Part   = "PART";   // args: id, channel
     public const string Say    = "SAY";    // args: id, target, text
+    public const string Events = "EVENTS"; // args: since (cursor) -> Events, Cursor
 }
 
 public enum BotStatus { Stopped, Connecting, Connected, Error }
@@ -35,6 +36,18 @@ public sealed class BotResponse
     public string? Error { get; set; }
     public string? Message { get; set; }
     public List<BotInfo>? Bots { get; set; }
+    public List<BotEvent>? Events { get; set; }
+    public long Cursor { get; set; }
+}
+
+// A single line of bot activity (connecting, TLS, registering, join, error…).
+public sealed class BotEvent
+{
+    public long Seq { get; set; }
+    public string BotId { get; set; } = "";
+    public string Nick { get; set; } = "";
+    public string Text { get; set; } = "";
+    public DateTime Utc { get; set; }
 }
 
 public sealed class BotInfo

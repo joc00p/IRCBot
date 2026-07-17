@@ -70,6 +70,12 @@ The grid shows each bot's nick, server host, port, status (colour-coded:
 green = connected, orange = connecting, red = error, grey = stopped/offline),
 channels, and last event. It auto-refreshes every 2 seconds while connected.
 
+Below the grid are two consoles: **Activity log** (panel/control activity and
+command results) and **Bot connection activity** — a live, per-bot IRC-level
+narrative streamed from the host (connecting, socket connected, TLS established,
+registering, connected, joining, PING/PONG, errors, disconnects), so you can
+see exactly what each bot is trying to do.
+
 ## Run the bot host on its own
 
 ```

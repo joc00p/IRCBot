@@ -8,6 +8,9 @@ public sealed class BotHost
 {
     private readonly ConcurrentDictionary<string, IrcBot> _bots = new();
 
+    // Shared, ordered log of bot activity that the panel streams via EVENTS.
+    public EventLog Events { get; } = new();
+
     public IReadOnlyCollection<BotInfo> List() => _bots.Values.Select(b => b.ToInfo()).ToList();
 
     // Create a bot, or update it if the id already exists (idempotent so the
@@ -21,7 +24,7 @@ public sealed class BotHost
                 ? (true, "Bot updated")
                 : (false, "Bot is running — stop it before editing");
         }
-        _bots[id] = new IrcBot(id, cfg);
+        _bots[id] = new IrcBot(id, cfg, Events);
         return (true, "Bot added");
     }
 
@@ -52,5 +55,33 @@ public sealed class BotHost
     {
         if (_bots.TryGetValue(id, out var bot)) { action(bot); return true; }
         return false;
+    }
+}
+
+// Thread-safe, capped, ordered ring buffer of bot activity. Each event gets a
+// monotonic sequence number so the panel can pull "everything since cursor".
+public sealed class EventLog
+{
+    private const int Capacity = 1000;
+    private readonly object _lock = new();
+    private readonly Queue<BotEvent> _events = new();
+    private long _seq;
+
+    public void Append(string botId, string nick, string text)
+    {
+        lock (_lock)
+        {
+            _events.Enqueue(new BotEvent { Seq = ++_seq, BotId = botId, Nick = nick, Text = text, Utc = DateTime.UtcNow });
+            while (_events.Count > Capacity) _events.Dequeue();
+        }
+    }
+
+    public (List<BotEvent> events, long cursor) Since(long cursor)
+    {
+        lock (_lock)
+        {
+            var list = _events.Where(e => e.Seq > cursor).OrderBy(e => e.Seq).ToList();
+            return (list, _seq);
+        }
     }
 }
