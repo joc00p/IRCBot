@@ -42,8 +42,17 @@ This opens the control panel. From there:
    starts the host process and auto-connects. (Or start `IRCBotHost` yourself
    and click **Connect**.) On connect, your roster is synced to the host and any
    bots already on the host are imported into your roster.
-4. Select a bot and use **Start / Stop / Join / Part / Say / Remove** (these
-   act on the running host, so they need a connection).
+4. Use **Start / Stop / Join / Part / Say / Remove** (these act on the running
+   host, so they need a connection).
+
+### Group commands across bots
+
+Each bot row has a checkbox. Commands run across **all checked bots** — so you
+can tick every bot and **Start** them at once, or tick a subset and **Join** a
+channel with just those. **☑ All** / **☐ None** toggle the whole list. When no
+boxes are checked, a command falls back to the single highlighted row. Join/Part
+prompt once for the channel and Say once for the message, then apply to the
+whole group; per-bot failures are reported in the log.
 
 ### Offline roster
 

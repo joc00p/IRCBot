@@ -51,6 +51,7 @@ public sealed class ControlForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(780, 500);
 
+        _botsView.CheckBoxes = true; // check bots to run commands across the group
         _botsView.Columns.Add("Nick", 120);
         _botsView.Columns.Add("Server Host", 110);
         _botsView.Columns.Add("Port", 55);
@@ -98,15 +99,17 @@ public sealed class ControlForm : Form
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 380 };
 
         var botsPanel = new Panel { Dock = DockStyle.Fill };
-        var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 36 };
+        var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 60 };
+        AddButton(actions, "☑ All", () => { SetAllChecked(true); return Task.CompletedTask; });
+        AddButton(actions, "☐ None", () => { SetAllChecked(false); return Task.CompletedTask; });
         AddButton(actions, "Add Bot…", async () => await AddBotAsync());
         AddButton(actions, "Edit…", async () => await EditBotAsync());
-        AddButton(actions, "Start", async () => await BotAction(BotCommands.Start));
-        AddButton(actions, "Stop", async () => await BotAction(BotCommands.Stop));
-        AddButton(actions, "Join…", async () => await JoinPartAsync(BotCommands.Join));
-        AddButton(actions, "Part…", async () => await JoinPartAsync(BotCommands.Part));
-        AddButton(actions, "Say…", async () => await SayAsync());
-        AddButton(actions, "Remove", async () => await RemoveBotAsync());
+        AddButton(actions, "Start", async () => await RunBatch(BotCommands.Start));
+        AddButton(actions, "Stop", async () => await RunBatch(BotCommands.Stop));
+        AddButton(actions, "Join…", async () => await BatchJoinPartAsync(BotCommands.Join));
+        AddButton(actions, "Part…", async () => await BatchJoinPartAsync(BotCommands.Part));
+        AddButton(actions, "Say…", async () => await BatchSayAsync());
+        AddButton(actions, "Remove", async () => await RemoveBotsAsync());
         AddButton(actions, "Refresh", async () => await RefreshAsync());
         botsPanel.Controls.Add(_botsView);
         botsPanel.Controls.Add(actions);
@@ -312,6 +315,7 @@ public sealed class ControlForm : Form
     private void RenderGrid(Dictionary<string, BotInfo> live)
     {
         var selected = SelectedId();
+        var checkedIds = _botsView.CheckedItems.Cast<ListViewItem>().Select(i => i.SubItems[6].Text).ToHashSet();
         _botsView.BeginUpdate();
         _botsView.Items.Clear();
         foreach (var d in _roster.OrderBy(d => d.Nick, StringComparer.OrdinalIgnoreCase))
@@ -331,6 +335,7 @@ public sealed class ControlForm : Form
                 _ => Color.DimGray
             };
             _botsView.Items.Add(item);
+            if (checkedIds.Contains(d.Id)) item.Checked = true;
             if (d.Id == selected) item.Selected = true;
         }
         _botsView.EndUpdate();
@@ -348,12 +353,47 @@ public sealed class ControlForm : Form
         catch (Exception ex) { Log("✗ " + ex.Message); }
     }
 
-    private async Task BotAction(string cmd)
+    // Run a command across the checked bots (or the selected row if none checked).
+    private async Task RunBatch(string cmd, params (string, string)[] extra)
     {
-        var id = SelectedId();
-        if (id == null) { Warn("Select a bot"); return; }
-        if (!_client.IsConnected) { Warn("Connect to a bot host to start/stop bots"); return; }
-        await RunAction(_client.ActionAsync(cmd, ("id", id)));
+        var ids = TargetIds();
+        if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
+        if (!_client.IsConnected) { Warn("Connect to a bot host to control bots"); return; }
+
+        int ok = 0, fail = 0;
+        foreach (var id in ids)
+        {
+            try
+            {
+                var args = new List<(string, string)> { ("id", id) };
+                args.AddRange(extra);
+                var r = await _client.ActionAsync(cmd, args.ToArray());
+                if (r.Ok) ok++; else { fail++; Log($"✗ {NickOf(id)}: {r.Error}"); }
+            }
+            catch (Exception ex) { fail++; Log($"✗ {NickOf(id)}: {ex.Message}"); }
+        }
+        Log($"{cmd} → {ok} ok{(fail > 0 ? $", {fail} failed" : "")} (across {ids.Count} bot(s))");
+        await RefreshAsync();
+    }
+
+    private async Task BatchJoinPartAsync(string cmd)
+    {
+        var ids = TargetIds();
+        if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
+        var channel = Prompt($"{cmd} channel for {ids.Count} bot(s) (e.g. #test):", "#test");
+        if (string.IsNullOrWhiteSpace(channel)) return;
+        await RunBatch(cmd, ("channel", channel));
+    }
+
+    private async Task BatchSayAsync()
+    {
+        var ids = TargetIds();
+        if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
+        var target = Prompt("Target (channel or nick):", "#test");
+        if (string.IsNullOrWhiteSpace(target)) return;
+        var text = Prompt($"Message from {ids.Count} bot(s):", "");
+        if (string.IsNullOrEmpty(text)) return;
+        await RunBatch(BotCommands.Say, ("target", target), ("text", text));
     }
 
     // Add works offline: writes to the local roster, and pushes to the host if connected.
@@ -407,41 +447,25 @@ public sealed class ControlForm : Form
             RenderGrid(new());
     }
 
-    private async Task JoinPartAsync(string cmd)
+    // Remove works offline across the checked bots (or the selected row).
+    private async Task RemoveBotsAsync()
     {
-        var id = SelectedId();
-        if (id == null) { Warn("Select a bot"); return; }
-        if (!_client.IsConnected) { Warn("Connect to a bot host to join/part channels"); return; }
-        var channel = Prompt($"{cmd} channel (e.g. #test):", "#test");
-        if (string.IsNullOrWhiteSpace(channel)) return;
-        await RunAction(_client.ActionAsync(cmd, ("id", id), ("channel", channel)));
-    }
+        var ids = TargetIds();
+        if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
+        if (ids.Count > 1 &&
+            MessageBox.Show(this, $"Remove {ids.Count} bots from the roster?", "Confirm",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
 
-    private async Task SayAsync()
-    {
-        var id = SelectedId();
-        if (id == null) { Warn("Select a bot"); return; }
-        if (!_client.IsConnected) { Warn("Connect to a bot host to send messages"); return; }
-        var target = Prompt("Target (channel or nick):", "#test");
-        if (string.IsNullOrWhiteSpace(target)) return;
-        var text = Prompt("Message:", "");
-        if (string.IsNullOrEmpty(text)) return;
-        await RunAction(_client.ActionAsync(BotCommands.Say, ("id", id), ("target", target), ("text", text)));
-    }
-
-    // Remove works offline: drops from the roster, and from the host if connected.
-    private async Task RemoveBotAsync()
-    {
-        var id = SelectedId();
-        if (id == null) { Warn("Select a bot"); return; }
-        _roster.RemoveAll(d => d.Id == id);
+        foreach (var id in ids) _roster.RemoveAll(d => d.Id == id);
         SaveRoster();
-        Log("Removed bot (local roster).");
+        Log($"Removed {ids.Count} bot(s) from roster.");
 
         if (_client.IsConnected)
-            await RunAction(_client.ActionAsync(BotCommands.Remove, ("id", id)));
-        else
-            RenderGrid(new());
+            foreach (var id in ids)
+                try { await _client.ActionAsync(BotCommands.Remove, ("id", id)); } catch { }
+
+        await RefreshAsync();
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -450,6 +474,22 @@ public sealed class ControlForm : Form
 
     private string? SelectedId() =>
         _botsView.SelectedItems.Count == 0 ? null : _botsView.SelectedItems[0].SubItems[6].Text;
+
+    // The bots a command targets: all checked, or the selected row if none checked.
+    private List<string> TargetIds()
+    {
+        var ids = _botsView.CheckedItems.Cast<ListViewItem>().Select(i => i.SubItems[6].Text).ToList();
+        if (ids.Count > 0) return ids;
+        var sel = SelectedId();
+        return sel != null ? new List<string> { sel } : new();
+    }
+
+    private void SetAllChecked(bool value)
+    {
+        foreach (ListViewItem it in _botsView.Items) it.Checked = value;
+    }
+
+    private string NickOf(string id) => _roster.FirstOrDefault(d => d.Id == id)?.Nick ?? id;
 
     private static void AddButton(Control parent, string text, Func<Task> onClick)
     {
