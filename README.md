@@ -2,9 +2,10 @@
 
 Simple IRC bots with a remote-control WinForms front end. A **bot host** runs
 any number of bots (each a client connection to an IRC server) and exposes a
-loopback-only JSON control port. The **control front end** connects to that
-port to see and drive the bots: add/remove, start/stop, join/part, send
-messages, and watch live status.
+loopback-only, **TLS-encrypted** JSON control endpoint on a configurable port.
+The **control front end** reaches out to that endpoint over TLS to see and
+drive the bots: add/remove, start/stop, join/part, send messages, and watch
+live status. You point the panel at the bots — never at an IRC server.
 
 Designed to work with the local [IRCServer](https://github.com/joc00p/IRCServer),
 but any IRC server works. Each bot has its own independent connection settings —
@@ -80,7 +81,10 @@ dotnet run --project Host -- [controlPort] [controlPassword]
 
 ## Control protocol
 
-Line-delimited JSON on the control port. Request:
+Line-delimited JSON over a TLS-encrypted connection to the control port
+(the host presents a self-signed cert; the panel accepts it for loopback use).
+An optional password can be required via the `AUTH` command on top of TLS.
+Request:
 
 ```json
 {"cmd":"ADD","args":{"nick":"MyBot","host":"localhost","port":"6667","channels":"#test"}}

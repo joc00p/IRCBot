@@ -1,19 +1,26 @@
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using IRCBot.Shared;
 
 namespace IRCBot.Host;
 
-// Loopback-only JSON control port. The remote-control front end connects here
-// to list bots and drive them (add/remove/start/stop/join/part/say).
+// The bots' control endpoint. The control panel reaches out to this port over
+// TLS to drive the bots (list/add/edit/remove/start/stop/join/part/say).
+// Loopback-only; the channel is always encrypted with a self-signed cert.
 public sealed class ControlInterface(BotHost host, int port, string? password)
 {
+    private readonly X509Certificate2 _cert = CreateSelfSignedCert();
+
     public async Task RunAsync()
     {
         var listener = new TcpListener(IPAddress.Loopback, port);
         listener.Start();
-        Console.WriteLine($"Control interface listening on 127.0.0.1:{port}" +
+        Console.WriteLine($"Bots control endpoint listening on 127.0.0.1:{port} (TLS)" +
                           (password != null ? " (password required)" : " (no password)"));
         while (true)
         {
@@ -25,14 +32,21 @@ public sealed class ControlInterface(BotHost host, int port, string? password)
     private async Task HandleAsync(TcpClient tcp)
     {
         using var _ = tcp;
-        var stream = tcp.GetStream();
-        using var reader = new StreamReader(stream, new UTF8Encoding(false));
-        using var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
-
-        bool authed = password == null;
         Console.WriteLine("[control] connection opened");
         try
         {
+            await using var ssl = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false);
+            await ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+            {
+                ServerCertificate = _cert,
+                ClientCertificateRequired = false,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+            });
+
+            using var reader = new StreamReader(ssl, new UTF8Encoding(false));
+            await using var writer = new StreamWriter(ssl, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+
+            bool authed = password == null;
             while (true)
             {
                 var line = await reader.ReadLineAsync();
@@ -49,7 +63,7 @@ public sealed class ControlInterface(BotHost host, int port, string? password)
                 await writer.WriteLineAsync(ControlJson.Serialize(resp));
             }
         }
-        catch { }
+        catch (Exception ex) { Console.WriteLine($"[control] session ended: {ex.Message}"); }
         finally { Console.WriteLine("[control] connection closed"); }
     }
 
@@ -101,6 +115,17 @@ public sealed class ControlInterface(BotHost host, int port, string? password)
             default:
                 return Fail($"Unknown command: {req.Cmd}");
         }
+    }
+
+    // Self-signed cert generated fresh each run. Re-imported via PFX so the
+    // private key is usable by SslStream as a server on Windows.
+    private static X509Certificate2 CreateSelfSignedCert()
+    {
+        using var rsa = RSA.Create(2048);
+        var req = new CertificateRequest("CN=IRCBotHost", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+        using var ephemeral = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(5));
+        return X509CertificateLoader.LoadPkcs12(ephemeral.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.Exportable);
     }
 
     private static BotResponse Ok(string msg) => new() { Ok = true, Message = msg };

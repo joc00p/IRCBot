@@ -1,13 +1,17 @@
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Text;
 using IRCBot.Shared;
 
 namespace IRCBot.ControlApp;
 
-// Thin client for the bot host's line-delimited JSON control port.
+// Thin client that reaches out to the bots' TLS control endpoint and speaks
+// the line-delimited JSON protocol over the encrypted channel.
 public sealed class BotControlClient : IDisposable
 {
     private TcpClient? _tcp;
+    private SslStream? _ssl;
     private StreamReader? _reader;
     private StreamWriter? _writer;
     private readonly SemaphoreSlim _lock = new(1, 1);
@@ -19,9 +23,18 @@ public sealed class BotControlClient : IDisposable
         Dispose();
         _tcp = new TcpClient();
         await _tcp.ConnectAsync(host, port);
-        var stream = _tcp.GetStream();
-        _reader = new StreamReader(stream, new UTF8Encoding(false));
-        _writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+
+        // The endpoint uses a self-signed cert; accept it (loopback, local test).
+        _ssl = new SslStream(_tcp.GetStream(), leaveInnerStreamOpen: false,
+            (_, _, _, _) => true);
+        await _ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+        {
+            TargetHost = host,
+            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+        });
+
+        _reader = new StreamReader(_ssl, new UTF8Encoding(false));
+        _writer = new StreamWriter(_ssl, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
 
         if (!string.IsNullOrEmpty(password))
         {
@@ -57,7 +70,8 @@ public sealed class BotControlClient : IDisposable
     {
         try { _writer?.Dispose(); } catch { }
         try { _reader?.Dispose(); } catch { }
+        try { _ssl?.Dispose(); } catch { }
         try { _tcp?.Dispose(); } catch { }
-        _tcp = null; _reader = null; _writer = null;
+        _tcp = null; _ssl = null; _reader = null; _writer = null;
     }
 }

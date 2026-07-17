@@ -80,15 +80,15 @@ public sealed class ControlForm : Form
         var bar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 76, Padding = new Padding(6, 6, 6, 0), WrapContents = true };
         Label Lbl(string t) => new() { Text = t, AutoSize = true, Margin = new Padding(3, 8, 0, 0) };
 
-        // Row 1 — launch/stop the bot host process
-        bar.Controls.Add(Lbl("Control Port:"));
+        // Row 1 — optionally launch a local bots process to control
+        bar.Controls.Add(Lbl("Bots Port:"));
         bar.Controls.Add(_hostPort);
         bar.Controls.Add(_launchBtn);
         bar.Controls.Add(_hostStatus);
         bar.SetFlowBreak(_hostStatus, true);
 
-        // Row 2 — connect the control client
-        bar.Controls.Add(Lbl("Host:"));
+        // Row 2 — reach out to the bots' control endpoint over TLS
+        bar.Controls.Add(Lbl("Bots Host:"));
         bar.Controls.Add(_host);
         bar.Controls.Add(Lbl("Port:"));
         bar.Controls.Add(_port);
@@ -255,9 +255,9 @@ public sealed class ControlForm : Form
         {
             if (!int.TryParse(_port.Text, out var port)) { Warn("Invalid port"); return false; }
             await _client.ConnectAsync(_host.Text.Trim(), port, _pass.Text);
-            SetStatus($"Connected to {_host.Text}:{port}", true);
+            SetStatus($"🔒 Connected (TLS) to {_host.Text}:{port}", true);
             _connectBtn.Text = "Disconnect";
-            Log($"Connected to control port {_host.Text}:{port}");
+            Log($"Connected over TLS to bots at {_host.Text}:{port}");
             await SyncWithHostAsync();
             if (_autoRefresh.Checked) _timer.Start();
             await RefreshAsync();
