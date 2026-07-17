@@ -71,24 +71,17 @@ public sealed class ControlInterface(BotHost host, int port, string? password)
 
             case BotCommands.Add:
             {
-                var nick = req.Arg("nick");
-                if (string.IsNullOrWhiteSpace(nick)) return Fail("Nick required");
-                var chost = req.Arg("host") is { Length: > 0 } h ? h : "localhost";
-                if (!int.TryParse(req.Arg("port"), out var port)) port = 6667;
-                var channels = req.Arg("channels").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                var (ok, msg) = host.Upsert(req.Arg("id"), nick, chost, port, channels);
+                var cfg = BotConfig.FromArgs(req);
+                if (string.IsNullOrWhiteSpace(cfg.Nick)) return Fail("Nick required");
+                var (ok, msg) = host.Upsert(req.Arg("id"), cfg);
                 return new BotResponse { Ok = ok, Message = ok ? msg : null, Error = ok ? null : msg, Bots = host.List().ToList() };
             }
 
             case BotCommands.Edit:
             {
-                var id = req.Arg("id");
-                var nick = req.Arg("nick");
-                if (string.IsNullOrWhiteSpace(nick)) return Fail("Nick required");
-                var chost = req.Arg("host") is { Length: > 0 } h ? h : "localhost";
-                if (!int.TryParse(req.Arg("port"), out var port)) port = 6667;
-                var channels = req.Arg("channels").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                var (ok, msg) = host.Edit(id, nick, chost, port, channels);
+                var cfg = BotConfig.FromArgs(req);
+                if (string.IsNullOrWhiteSpace(cfg.Nick)) return Fail("Nick required");
+                var (ok, msg) = host.Edit(req.Arg("id"), cfg);
                 return new BotResponse { Ok = ok, Message = ok ? msg : null, Error = ok ? null : msg, Bots = host.List().ToList() };
             }
 

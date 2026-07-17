@@ -7,7 +7,9 @@ port to see and drive the bots: add/remove, start/stop, join/part, send
 messages, and watch live status.
 
 Designed to work with the local [IRCServer](https://github.com/joc00p/IRCServer),
-but any IRC server works.
+but any IRC server works. Each bot has its own independent connection settings —
+host, port, TLS/SSL, server password, ident, and real name — so different bots
+can point at different servers at once.
 
 ## Projects
 
@@ -33,11 +35,12 @@ dotnet run
 
 This opens the control panel. From there:
 
-1. Click **Add Bot…**, give it a nick, the IRC server host/port
-   (e.g. `localhost` / `6667`), and initial channels. **This works with no
-   host connection** — bots are stored in a local roster.
-2. **Edit…** (or double-click a row) to change a bot's nick/host/port/channels,
-   also offline.
+1. Click **Add Bot…**, give it a nick and its **own server connection**
+   (host, port, optional TLS/SSL, server password, ident, real name) plus
+   initial channels. **This works with no host connection** — bots are stored
+   in a local roster.
+2. **Edit…** (or double-click a row) to change any of a bot's settings, also
+   offline.
 3. Set the **Control Port** (default `6690`) and click **Launch Bot Host** — it
    starts the host process and auto-connects. (Or start `IRCBotHost` yourself
    and click **Connect**.) On connect, your roster is synced to the host and any
@@ -89,5 +92,7 @@ Response:
 {"ok":true,"message":"Added bot MyBot","bots":[ ... ]}
 ```
 
-Commands: `AUTH` `LIST` `ADD` `REMOVE` `START` `STOP` `JOIN` `PART` `SAY`.
-See `Shared/ControlProtocol.cs`.
+Commands: `AUTH` `LIST` `ADD` `EDIT` `REMOVE` `START` `STOP` `JOIN` `PART` `SAY`.
+`ADD`/`EDIT` accept the full per-bot connection: `nick`, `host`, `port`, `tls`
+(`true`/`false`), `password`, `ident`, `realname`, `channels`. See
+`Shared/ControlProtocol.cs`.

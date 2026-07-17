@@ -43,10 +43,38 @@ public sealed class BotInfo
     public string Nick { get; set; } = "";
     public string Host { get; set; } = "";
     public int Port { get; set; }
+    public bool UseTls { get; set; }
+    public string Ident { get; set; } = "";
+    public string RealName { get; set; } = "";
     public BotStatus Status { get; set; }
     public List<string> Channels { get; set; } = new();
     public string LastEvent { get; set; } = "";
     public DateTime? ConnectedUtc { get; set; }
+}
+
+// Full per-bot connection configuration. Each bot connects independently.
+public sealed class BotConfig
+{
+    public string Nick { get; set; } = "";
+    public string Host { get; set; } = "localhost";
+    public int Port { get; set; } = 6667;
+    public bool UseTls { get; set; }
+    public string Password { get; set; } = "";   // server PASS; empty = none
+    public string Ident { get; set; } = "";       // USER ident; empty = nick
+    public string RealName { get; set; } = "";     // empty = "IRCBot <nick>"
+    public List<string> Channels { get; set; } = new();
+
+    public static BotConfig FromArgs(BotRequest r) => new()
+    {
+        Nick = r.Arg("nick"),
+        Host = r.Arg("host") is { Length: > 0 } h ? h : "localhost",
+        Port = int.TryParse(r.Arg("port"), out var p) ? p : 6667,
+        UseTls = r.Arg("tls").Equals("true", StringComparison.OrdinalIgnoreCase),
+        Password = r.Arg("password"),
+        Ident = r.Arg("ident"),
+        RealName = r.Arg("realname"),
+        Channels = r.Arg("channels").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
+    };
 }
 
 public static class ControlJson

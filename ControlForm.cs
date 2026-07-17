@@ -52,13 +52,14 @@ public sealed class ControlForm : Form
         MinimumSize = new Size(780, 500);
 
         _botsView.CheckBoxes = true; // check bots to run commands across the group
-        _botsView.Columns.Add("Nick", 120);
-        _botsView.Columns.Add("Server Host", 110);
-        _botsView.Columns.Add("Port", 55);
-        _botsView.Columns.Add("Status", 90);
-        _botsView.Columns.Add("Channels", 210);
-        _botsView.Columns.Add("Last Event", 150);
-        _botsView.Columns.Add("Id", 70);
+        _botsView.Columns.Add("Nick", 110);
+        _botsView.Columns.Add("Server Host", 105);
+        _botsView.Columns.Add("Port", 50);
+        _botsView.Columns.Add("TLS", 40);
+        _botsView.Columns.Add("Status", 85);
+        _botsView.Columns.Add("Channels", 185);
+        _botsView.Columns.Add("Last Event", 140);
+        _botsView.Columns.Add("Id", 65);
 
         BuildLayout();
         LoadRoster();
@@ -315,7 +316,7 @@ public sealed class ControlForm : Form
     private void RenderGrid(Dictionary<string, BotInfo> live)
     {
         var selected = SelectedId();
-        var checkedIds = _botsView.CheckedItems.Cast<ListViewItem>().Select(i => i.SubItems[6].Text).ToHashSet();
+        var checkedIds = _botsView.CheckedItems.Cast<ListViewItem>().Select(i => (string)i.Tag!).ToHashSet();
         _botsView.BeginUpdate();
         _botsView.Items.Clear();
         foreach (var d in _roster.OrderBy(d => d.Nick, StringComparer.OrdinalIgnoreCase))
@@ -325,8 +326,8 @@ public sealed class ControlForm : Form
             var channels = info != null ? string.Join(", ", info.Channels) : string.Join(", ", d.Channels);
             var item = new ListViewItem(new[]
             {
-                d.Nick, d.Host, d.Port.ToString(), status, channels, info?.LastEvent ?? "", d.Id
-            });
+                d.Nick, d.Host, d.Port.ToString(), d.UseTls ? "🔒" : "", status, channels, info?.LastEvent ?? "", d.Id
+            }) { Tag = d.Id };
             item.ForeColor = info?.Status switch
             {
                 BotStatus.Connected => Color.ForestGreen,
@@ -409,6 +410,10 @@ public sealed class ControlForm : Form
             Nick = dlg.Nick,
             Host = dlg.HostName,
             Port = int.TryParse(dlg.Port, out var p) ? p : 6667,
+            UseTls = dlg.UseTls,
+            Password = dlg.Password,
+            Ident = dlg.Ident,
+            RealName = dlg.RealName,
             Channels = SplitChannels(dlg.Channels)
         };
         _roster.Add(def);
@@ -430,13 +435,18 @@ public sealed class ControlForm : Form
         var def = _roster.FirstOrDefault(d => d.Id == id);
         if (def == null) return;
 
-        using var dlg = new AddBotDialog("Edit Bot", def.Nick, def.Host, def.Port.ToString(), string.Join(", ", def.Channels));
+        using var dlg = new AddBotDialog("Edit Bot", def.Nick, def.Host, def.Port.ToString(),
+            def.UseTls, def.Password, def.Ident, def.RealName, string.Join(", ", def.Channels));
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         if (string.IsNullOrWhiteSpace(dlg.Nick)) { Warn("Nick is required"); return; }
 
         def.Nick = dlg.Nick;
         def.Host = dlg.HostName;
         def.Port = int.TryParse(dlg.Port, out var p) ? p : 6667;
+        def.UseTls = dlg.UseTls;
+        def.Password = dlg.Password;
+        def.Ident = dlg.Ident;
+        def.RealName = dlg.RealName;
         def.Channels = SplitChannels(dlg.Channels);
         SaveRoster();
         Log($"Edited bot {def.Nick} (local roster).");
@@ -473,12 +483,12 @@ public sealed class ControlForm : Form
         csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
 
     private string? SelectedId() =>
-        _botsView.SelectedItems.Count == 0 ? null : _botsView.SelectedItems[0].SubItems[6].Text;
+        _botsView.SelectedItems.Count == 0 ? null : _botsView.SelectedItems[0].Tag as string;
 
     // The bots a command targets: all checked, or the selected row if none checked.
     private List<string> TargetIds()
     {
-        var ids = _botsView.CheckedItems.Cast<ListViewItem>().Select(i => i.SubItems[6].Text).ToList();
+        var ids = _botsView.CheckedItems.Cast<ListViewItem>().Select(i => (string)i.Tag!).ToList();
         if (ids.Count > 0) return ids;
         var sel = SelectedId();
         return sel != null ? new List<string> { sel } : new();
@@ -532,60 +542,94 @@ public sealed class ControlForm : Form
     }
 }
 
-// A persisted bot definition owned by the front end.
+// A persisted bot definition owned by the front end. Each bot carries its own
+// full server connection settings.
 public sealed class BotDef
 {
     public string Id { get; set; } = "";
     public string Nick { get; set; } = "";
     public string Host { get; set; } = "localhost";
     public int Port { get; set; } = 6667;
+    public bool UseTls { get; set; }
+    public string Password { get; set; } = "";
+    public string Ident { get; set; } = "";
+    public string RealName { get; set; } = "";
     public List<string> Channels { get; set; } = new();
 
     public (string, string)[] ToArgs() => new[]
     {
-        ("id", Id), ("nick", Nick), ("host", Host),
-        ("port", Port.ToString()), ("channels", string.Join(",", Channels))
+        ("id", Id), ("nick", Nick), ("host", Host), ("port", Port.ToString()),
+        ("tls", UseTls ? "true" : "false"), ("password", Password),
+        ("ident", Ident), ("realname", RealName),
+        ("channels", string.Join(",", Channels))
     };
 
     public static BotDef FromInfo(BotInfo b) => new()
     {
-        Id = b.Id, Nick = b.Nick, Host = b.Host, Port = b.Port, Channels = b.Channels.ToList()
+        Id = b.Id, Nick = b.Nick, Host = b.Host, Port = b.Port, UseTls = b.UseTls,
+        Ident = b.Ident, RealName = b.RealName, Channels = b.Channels.ToList()
     };
 }
 
-// Dialog for creating or editing a bot: nick, server host, port, channels.
+// Dialog for creating or editing a bot with its own full connection settings.
 public sealed class AddBotDialog : Form
 {
-    private readonly TextBox _nick = new() { Left = 130, Top = 12, Width = 260 };
-    private readonly TextBox _host = new() { Left = 130, Top = 44, Width = 260 };
-    private readonly TextBox _port = new() { Left = 130, Top = 76, Width = 260 };
-    private readonly TextBox _channels = new() { Left = 130, Top = 108, Width = 260 };
+    private readonly TextBox _nick = new() { Width = 250 };
+    private readonly TextBox _host = new() { Width = 250 };
+    private readonly TextBox _port = new() { Width = 250 };
+    private readonly CheckBox _tls = new() { Text = "Use TLS/SSL", AutoSize = true };
+    private readonly TextBox _pass = new() { Width = 250, UseSystemPasswordChar = true };
+    private readonly TextBox _ident = new() { Width = 250 };
+    private readonly TextBox _real = new() { Width = 250 };
+    private readonly TextBox _channels = new() { Width = 250 };
 
     public string Nick => _nick.Text.Trim();
     public string HostName => _host.Text.Trim();
     public string Port => _port.Text.Trim();
+    public bool UseTls => _tls.Checked;
+    public string Password => _pass.Text;
+    public string Ident => _ident.Text.Trim();
+    public string RealName => _real.Text.Trim();
     public string Channels => _channels.Text.Trim();
 
-    public AddBotDialog(string title = "Add Bot", string nick = "MyBot", string host = "localhost", string port = "6667", string channels = "#test")
+    public AddBotDialog(string title = "Add Bot", string nick = "MyBot", string host = "localhost",
+        string port = "6667", bool tls = false, string password = "", string ident = "",
+        string realName = "", string channels = "#test")
     {
         Text = title;
-        Width = 420; Height = 210;
+        Width = 420; Height = 350;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterParent;
         MaximizeBox = false; MinimizeBox = false;
 
-        _nick.Text = nick; _host.Text = host; _port.Text = port; _channels.Text = channels;
+        _nick.Text = nick; _host.Text = host; _port.Text = port; _tls.Checked = tls;
+        _pass.Text = password; _ident.Text = ident; _real.Text = realName; _channels.Text = channels;
 
-        Label L(string t, int top) => new() { Text = t, Left = 12, Top = top + 3, Width = 115 };
-        var ok = new Button { Text = "Save", DialogResult = DialogResult.OK, Left = 234, Top = 140, Width = 75 };
-        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Left = 315, Top = 140, Width = 75 };
+        int y = 14;
+        Label Row(string label, Control field)
+        {
+            var lbl = new Label { Text = label, Left = 12, Top = y + 3, Width = 120 };
+            field.Left = 140; field.Top = y;
+            y += 32;
+            return lbl;
+        }
+
+        var lNick = Row("Nick:", _nick);
+        var lHost = Row("Server host:", _host);
+        var lPort = Row("Server port:", _port);
+        _tls.Left = 140; _tls.Top = y; y += 30;
+        var lPass = Row("Server password:", _pass);
+        var lIdent = Row("Ident (optional):", _ident);
+        var lReal = Row("Real name (optional):", _real);
+        var lChan = Row("Channels (csv):", _channels);
+
+        var ok = new Button { Text = "Save", DialogResult = DialogResult.OK, Left = 234, Top = y + 6, Width = 75 };
+        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Left = 315, Top = y + 6, Width = 75 };
 
         Controls.AddRange(new Control[]
         {
-            L("Nick:", 12), _nick,
-            L("Server host:", 44), _host,
-            L("Server port:", 76), _port,
-            L("Channels (csv):", 108), _channels,
+            lNick, _nick, lHost, _host, lPort, _port, _tls,
+            lPass, _pass, lIdent, _ident, lReal, _real, lChan, _channels,
             ok, cancel
         });
         AcceptButton = ok; CancelButton = cancel;

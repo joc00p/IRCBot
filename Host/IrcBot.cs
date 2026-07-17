@@ -1,18 +1,25 @@
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Text;
 using IRCBot.Shared;
 
 namespace IRCBot.Host;
 
-// A single IRC bot: one client connection to an IRC server. Connects,
-// registers, keeps itself alive (PING/PONG), joins/parts channels, and can
-// send messages. All public methods are safe to call from the control thread.
+// A single IRC bot: one client connection to an IRC server, with its own
+// independent connection settings (host, port, TLS, password, ident, realname).
+// Connects, registers, keeps itself alive (PING/PONG), joins/parts channels,
+// and can send messages. All public methods are safe to call from the control thread.
 public sealed class IrcBot
 {
     public string Id { get; }
-    public string Nick { get; private set; }
-    public string Host { get; private set; }
+    public string Nick { get; private set; } = "";
+    public string Host { get; private set; } = "localhost";
     public int Port { get; private set; }
+    public bool UseTls { get; private set; }
+    public string Password { get; private set; } = "";
+    public string Ident { get; private set; } = "";
+    public string RealName { get; private set; } = "";
 
     public BotStatus Status { get; private set; } = BotStatus.Stopped;
     public string LastEvent { get; private set; } = "created";
@@ -25,30 +32,23 @@ public sealed class IrcBot
     private StreamWriter? _writer;
     private CancellationTokenSource? _cts;
 
-    public IrcBot(string id, string nick, string host, int port, IEnumerable<string> channels)
+    public IrcBot(string id, BotConfig cfg)
     {
         Id = id;
-        Nick = nick;
-        Host = host;
-        Port = port;
-        foreach (var c in channels) _channels.Add(Normalize(c));
+        Apply(cfg);
     }
 
-    // Update a bot's configuration. Only permitted while stopped, so a running
-    // connection is never mutated out from under itself.
-    public bool UpdateConfig(string nick, string host, int port, IEnumerable<string> channels)
+    private void Apply(BotConfig cfg)
     {
-        lock (_lock)
-        {
-            if (Status is BotStatus.Connecting or BotStatus.Connected) return false;
-            Nick = nick;
-            Host = host;
-            Port = port;
-            _channels.Clear();
-            foreach (var c in channels) _channels.Add(Normalize(c));
-            LastEvent = "edited";
-            return true;
-        }
+        Nick = cfg.Nick;
+        Host = cfg.Host;
+        Port = cfg.Port;
+        UseTls = cfg.UseTls;
+        Password = cfg.Password;
+        Ident = cfg.Ident;
+        RealName = cfg.RealName;
+        _channels.Clear();
+        foreach (var c in cfg.Channels) _channels.Add(Normalize(c));
     }
 
     public BotInfo ToInfo()
@@ -56,10 +56,24 @@ public sealed class IrcBot
         lock (_lock)
             return new BotInfo
             {
-                Id = Id, Nick = Nick, Host = Host, Port = Port,
+                Id = Id, Nick = Nick, Host = Host, Port = Port, UseTls = UseTls,
+                Ident = Ident, RealName = RealName,
                 Status = Status, LastEvent = LastEvent, ConnectedUtc = ConnectedUtc,
                 Channels = _channels.ToList()
             };
+    }
+
+    // Update configuration. Only permitted while stopped, so a running
+    // connection is never mutated out from under itself.
+    public bool UpdateConfig(BotConfig cfg)
+    {
+        lock (_lock)
+        {
+            if (Status is BotStatus.Connecting or BotStatus.Connected) return false;
+            Apply(cfg);
+            LastEvent = "edited";
+            return true;
+        }
     }
 
     public void Start()
@@ -119,12 +133,29 @@ public sealed class IrcBot
         {
             _tcp = new TcpClient();
             await _tcp.ConnectAsync(Host, Port, ct);
-            var stream = _tcp.GetStream();
+
+            Stream stream = _tcp.GetStream();
+            if (UseTls)
+            {
+                // Local test tooling: accept any server certificate.
+                var ssl = new SslStream(stream, leaveInnerStreamOpen: false,
+                    (_, _, _, _) => true);
+                await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                {
+                    TargetHost = Host,
+                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+                }, ct);
+                stream = ssl;
+            }
+
             var reader = new StreamReader(stream, new UTF8Encoding(false));
             lock (_lock) _writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\r\n" };
 
+            var ident = string.IsNullOrWhiteSpace(Ident) ? Nick : Ident;
+            var real = string.IsNullOrWhiteSpace(RealName) ? $"IRCBot {Nick}" : RealName;
+            if (!string.IsNullOrEmpty(Password)) Send($"PASS {Password}");
             Send($"NICK {Nick}");
-            Send($"USER {Nick} 0 * :IRCBot {Nick}");
+            Send($"USER {ident} 0 * :{real}");
 
             while (!ct.IsCancellationRequested)
             {
@@ -157,7 +188,6 @@ public sealed class IrcBot
             return;
         }
 
-        // Parse command token (skip optional :prefix)
         var body = raw;
         if (body.StartsWith(':'))
         {
@@ -167,8 +197,7 @@ public sealed class IrcBot
         }
         var cmd = body.Split(' ', 2)[0];
 
-        // 001 = RPL_WELCOME → registration complete
-        if (cmd == "001")
+        if (cmd == "001") // RPL_WELCOME → registration complete
         {
             string[] chans;
             lock (_lock)

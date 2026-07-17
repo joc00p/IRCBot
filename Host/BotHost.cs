@@ -12,24 +12,24 @@ public sealed class BotHost
 
     // Create a bot, or update it if the id already exists (idempotent so the
     // front end can push its local roster on connect). Returns (ok, message).
-    public (bool ok, string message) Upsert(string id, string nick, string host, int port, IEnumerable<string> channels)
+    public (bool ok, string message) Upsert(string id, BotConfig cfg)
     {
         if (string.IsNullOrEmpty(id)) id = Guid.NewGuid().ToString("N")[..8];
         if (_bots.TryGetValue(id, out var existing))
         {
-            return existing.UpdateConfig(nick, host, port, channels)
+            return existing.UpdateConfig(cfg)
                 ? (true, "Bot updated")
                 : (false, "Bot is running — stop it before editing");
         }
-        _bots[id] = new IrcBot(id, nick, host, port, channels);
+        _bots[id] = new IrcBot(id, cfg);
         return (true, "Bot added");
     }
 
     // Edit an existing bot; fails if it doesn't exist.
-    public (bool ok, string message) Edit(string id, string nick, string host, int port, IEnumerable<string> channels)
+    public (bool ok, string message) Edit(string id, BotConfig cfg)
     {
         if (!_bots.TryGetValue(id, out var bot)) return (false, "No such bot");
-        return bot.UpdateConfig(nick, host, port, channels)
+        return bot.UpdateConfig(cfg)
             ? (true, "Bot updated")
             : (false, "Bot is running — stop it before editing");
     }
