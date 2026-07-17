@@ -16,12 +16,11 @@ public sealed class ControlForm : Form
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "IRCBot", "bots.json");
 
     // Bot host process controls
-    private readonly TextBox _hostPort = new() { Text = "6690", Width = 55 };
     private readonly Button _launchBtn = new() { Text = "Launch Bot Host", Width = 120 };
     private readonly Label _hostStatus = new() { Text = "Host not running", AutoSize = true, ForeColor = Color.Gray, Margin = new Padding(8, 8, 0, 0) };
     private Process? _hostProc;
 
-    // Connection bar
+    // Connection bar — one Host/Port used for both launching and connecting.
     private readonly TextBox _host = new() { Text = "127.0.0.1", Width = 90 };
     private readonly TextBox _port = new() { Text = "6690", Width = 55 };
     private readonly TextBox _pass = new() { Width = 90, UseSystemPasswordChar = true, PlaceholderText = "password" };
@@ -80,22 +79,19 @@ public sealed class ControlForm : Form
         var bar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 76, Padding = new Padding(6, 6, 6, 0), WrapContents = true };
         Label Lbl(string t) => new() { Text = t, AutoSize = true, Margin = new Padding(3, 8, 0, 0) };
 
-        // Row 1 — optionally launch a local bots process to control
-        bar.Controls.Add(Lbl("Bots Port:"));
-        bar.Controls.Add(_hostPort);
-        bar.Controls.Add(_launchBtn);
-        bar.Controls.Add(_hostStatus);
-        bar.SetFlowBreak(_hostStatus, true);
-
-        // Row 2 — reach out to the bots' control endpoint over TLS
+        // One Bots Host/Port drives both Connect (reach out over TLS) and
+        // Launch Bot Host (start a local host on that port, then connect).
         bar.Controls.Add(Lbl("Bots Host:"));
         bar.Controls.Add(_host);
         bar.Controls.Add(Lbl("Port:"));
         bar.Controls.Add(_port);
         bar.Controls.Add(_pass);
         bar.Controls.Add(_connectBtn);
+        bar.Controls.Add(_launchBtn);
+        bar.SetFlowBreak(_launchBtn, true);
         bar.Controls.Add(_autoRefresh);
         bar.Controls.Add(_status);
+        bar.Controls.Add(_hostStatus);
 
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 380 };
 
@@ -156,7 +152,7 @@ public sealed class ControlForm : Form
             if (ofd.ShowDialog(this) != DialogResult.OK) return;
             exe = ofd.FileName;
         }
-        if (!int.TryParse(_hostPort.Text, out var controlPort)) { Warn("Invalid control port"); return; }
+        if (!int.TryParse(_port.Text, out var controlPort)) { Warn("Invalid port"); return; }
 
         try
         {
@@ -185,8 +181,6 @@ public sealed class ControlForm : Form
             SetHostStatus($"Host running (control {controlPort})", true);
             Log($"Launched {Path.GetFileName(exe)} {controlPort}");
 
-            _host.Text = "127.0.0.1";
-            _port.Text = controlPort.ToString();
             for (int i = 0; i < 12 && !_client.IsConnected; i++)
             {
                 await Task.Delay(300);
