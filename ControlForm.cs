@@ -430,8 +430,16 @@ public sealed class ControlForm : Form
     // rejects the edit and asks you to stop it first.
     private async Task EditBotAsync()
     {
+        // Edit is single-target: prefer the highlighted row, else the sole
+        // checked bot. Editing more than one at a time isn't meaningful.
         var id = SelectedId();
-        if (id == null) { Warn("Select a bot"); return; }
+        if (id == null)
+        {
+            var ids = TargetIds();
+            if (ids.Count == 1) id = ids[0];
+            else if (ids.Count > 1) { Warn("Editing is one bot at a time — check just one, or click a row"); return; }
+        }
+        if (id == null) { Warn("Select or check a bot to edit"); return; }
         var def = _roster.FirstOrDefault(d => d.Id == id);
         if (def == null) return;
 
