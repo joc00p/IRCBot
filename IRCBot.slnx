@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/Host/">
+    <Project Path="Host/IRCBotHost.csproj" />
+  </Folder>
+  <Folder Name="/Shared/">
+    <Project Path="Shared/IRCBot.Shared.csproj" />
+  </Folder>
+  <Project Path="IRCBotControl.csproj" />
+</Solution>

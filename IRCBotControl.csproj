@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>IRCBotControl</AssemblyName>
+    <RootNamespace>IRCBot.ControlApp</RootNamespace>
+  </PropertyGroup>
+  <!-- This project lives at the repo root so `dotnet run` (no args) launches
+       the remote-control front end. Exclude the sibling projects' sources. -->
+  <ItemGroup>
+    <Compile Remove="Host\**\*.cs" />
+    <Compile Remove="Shared\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="Shared\IRCBot.Shared.csproj" />
+  </ItemGroup>
+</Project>
