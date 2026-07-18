@@ -313,12 +313,22 @@ public sealed class ControlForm : Form
     {
         if (_client.IsConnected)
         {
-            _timer.Stop(); _client.Dispose();
-            SetStatus("Disconnected", false); _connectBtn.Text = "Connect";
-            RenderGrid(new());
+            DisconnectUi("Disconnected");
             return;
         }
         await ConnectAsync();
+    }
+
+    // Tear down the control connection in the UI (manual disconnect or a drop).
+    private void DisconnectUi(string reason)
+    {
+        _timer.Stop();
+        _client.Dispose();
+        if (IsDisposed) return;
+        SetStatus("Disconnected", false);
+        _connectBtn.Text = "Connect";
+        Log(reason);
+        RenderGrid(new());
     }
 
     private async Task<bool> ConnectAsync()
@@ -391,7 +401,13 @@ public sealed class ControlForm : Form
                     _eventCursor = er.Cursor;
                 }
             }
-            catch (Exception ex) { Log($"Refresh error: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                // A dropped host connection stops responding — tear down instead
+                // of logging the same error every refresh tick.
+                if (!_client.IsConnected) { DisconnectUi($"Lost connection to bots: {ex.Message}"); return; }
+                Log($"Refresh error: {ex.Message}");
+            }
         }
         RenderGrid(live);
     }

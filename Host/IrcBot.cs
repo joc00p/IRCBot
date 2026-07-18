@@ -189,13 +189,17 @@ public sealed class IrcBot
     private async Task RunAsync(CancellationTokenSource cts)
     {
         var ct = cts.Token;
+        TcpClient? tcp = null;
+        Stream? netStream = null;   // outermost stream (SslStream or NetworkStream)
+        StreamReader? reader = null;
+        bool errored = false;
         try
         {
-            _tcp = new TcpClient();
-            await _tcp.ConnectAsync(Host, Port, ct);
+            tcp = _tcp = new TcpClient();
+            await tcp.ConnectAsync(Host, Port, ct);
             Event("socket connected");
 
-            Stream stream = _tcp.GetStream();
+            Stream stream = netStream = tcp.GetStream();
             if (UseTls)
             {
                 // Local test tooling: accept any server certificate.
@@ -207,10 +211,10 @@ public sealed class IrcBot
                     EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
                 }, ct);
                 Event($"TLS established ({ssl.SslProtocol})");
-                stream = ssl;
+                stream = netStream = ssl;
             }
 
-            var reader = new StreamReader(stream, new UTF8Encoding(false));
+            reader = new StreamReader(stream, new UTF8Encoding(false));
             lock (_lock) _writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\r\n" };
 
             var ident = string.IsNullOrWhiteSpace(Ident) ? Nick : Ident;
@@ -230,6 +234,7 @@ public sealed class IrcBot
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
+            errored = true;
             // Only report if this is still the active run — a newer Start()
             // may have superseded us after a rapid Stop/Start.
             bool owner;
@@ -239,8 +244,15 @@ public sealed class IrcBot
                 if (owner) { Status = BotStatus.Error; ConnectedUtc = null; }
             }
             if (owner) Event($"error: {ex.Message}");
-            return;
         }
+        finally
+        {
+            // Release this run's socket/streams on every exit path.
+            try { reader?.Dispose(); } catch { }
+            try { netStream?.Dispose(); } catch { }
+            try { tcp?.Dispose(); } catch { }
+        }
+        if (errored) return;
 
         bool stillOwner, wasStopped;
         lock (_lock)
