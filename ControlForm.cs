@@ -51,6 +51,9 @@ public sealed class ControlForm : Form
     };
     private long _eventCursor;
 
+    // Latest per-bot live info from the host, used to default channel prompts.
+    private Dictionary<string, BotInfo> _lastLive = new();
+
     // Draggable splitters between the bot list, activity log, and bot activity.
     private SplitContainer? _mainSplit;
     private SplitContainer? _logSplit;
@@ -410,7 +413,24 @@ public sealed class ControlForm : Form
                 Log($"Refresh error: {ex.Message}");
             }
         }
+        _lastLive = live;
         RenderGrid(live);
+    }
+
+    // A sensible default channel for prompts: a channel the targeted bots are
+    // actually in, else one of their configured channels, else "#test".
+    private string DefaultChannel()
+    {
+        var ids = TargetIds();
+        foreach (var id in ids)
+            if (_lastLive.TryGetValue(id, out var info) && info.Channels.Count > 0)
+                return info.Channels[0];
+        foreach (var id in ids)
+        {
+            var def = _roster.FirstOrDefault(d => d.Id == id);
+            if (def != null && def.Channels.Count > 0) return def.Channels[0];
+        }
+        return "#test";
     }
 
     private void RenderGrid(Dictionary<string, BotInfo> live)
@@ -481,7 +501,9 @@ public sealed class ControlForm : Form
     {
         var ids = TargetIds();
         if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
-        var channel = Prompt($"{cmd} channel for {ids.Count} bot(s) (e.g. #test):", "#test");
+        // Part defaults to a channel the bots are in; Join defaults to a new one.
+        var def = cmd == BotCommands.Part ? DefaultChannel() : "#test";
+        var channel = Prompt($"{cmd} channel for {ids.Count} bot(s):", def);
         if (string.IsNullOrWhiteSpace(channel)) return;
         await RunBatch(cmd, ("channel", channel));
     }
@@ -490,7 +512,7 @@ public sealed class ControlForm : Form
     {
         var ids = TargetIds();
         if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
-        var target = Prompt("Target (channel or nick):", "#test");
+        var target = Prompt("Target (channel or nick):", DefaultChannel());
         if (string.IsNullOrWhiteSpace(target)) return;
         var text = Prompt($"Message from {ids.Count} bot(s):", "");
         if (string.IsNullOrEmpty(text)) return;
@@ -502,7 +524,7 @@ public sealed class ControlForm : Form
     {
         var ids = TargetIds();
         if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
-        var channel = Prompt("Channel:", "#test");
+        var channel = Prompt("Channel:", DefaultChannel());
         if (string.IsNullOrWhiteSpace(channel)) return;
         var modes = Prompt("Modes (e.g. +m, +t, -s, +l 20):", "+t");
         if (string.IsNullOrWhiteSpace(modes)) return;
@@ -524,7 +546,7 @@ public sealed class ControlForm : Form
         var checkedIds = CheckedIds();
         if (checkedIds.Count > 0)
         {
-            var channel = Prompt($"Channel to {flag} the {checkedIds.Count} selected bot(s) in:", "#test");
+            var channel = Prompt($"Channel to {flag} the {checkedIds.Count} selected bot(s) in:", DefaultChannel());
             if (string.IsNullOrWhiteSpace(channel)) return;
 
             var nicks = checkedIds.Select(NickOf).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
@@ -537,7 +559,7 @@ public sealed class ControlForm : Form
 
         var id = SelectedId();
         if (id == null) { Warn("Check bots to target them, or select a bot to issue the command"); return; }
-        var ch = Prompt("Channel:", "#test");
+        var ch = Prompt("Channel:", DefaultChannel());
         if (string.IsNullOrWhiteSpace(ch)) return;
         var nick = Prompt($"Nick to {flag}:", "");
         if (string.IsNullOrWhiteSpace(nick)) return;
@@ -550,7 +572,7 @@ public sealed class ControlForm : Form
         var ids = TargetIds();
         if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
         if (!_client.IsConnected) { Warn("Connect to a bot host first"); return; }
-        var channel = Prompt("Channel:", "#test");
+        var channel = Prompt("Channel:", DefaultChannel());
         if (string.IsNullOrWhiteSpace(channel)) return;
         var nick = Prompt("Nick to kick:", "");
         if (string.IsNullOrWhiteSpace(nick)) return;
@@ -565,7 +587,7 @@ public sealed class ControlForm : Form
         var ids = TargetIds();
         if (ids.Count != 1) { Warn("Select or check exactly one bot to manage bans"); return; }
         if (!_client.IsConnected) { Warn("Connect to a bot host first"); return; }
-        var channel = Prompt("Channel to manage bans for:", "#test");
+        var channel = Prompt("Channel to manage bans for:", DefaultChannel());
         if (string.IsNullOrWhiteSpace(channel)) return;
 
         using var dlg = new BanManagerDialog(_client, ids[0], NickOf(ids[0]), channel.Trim());
