@@ -464,16 +464,39 @@ public sealed class ControlForm : Form
         await RunBatch(BotCommands.Mode, ("channel", channel), ("modes", modes));
     }
 
-    // Op/deop/voice/devoice a nick on a channel (flag is +o/-o/+v/-v).
+    // Op/deop/voice/devoice on a channel (flag is +o/-o/+v/-v).
+    //  - If bots are checked: ask only for the channel and apply the mode to the
+    //    checked bots' own nicks (each checked bot issues it, so whichever holds
+    //    op applies it to the whole group).
+    //  - If nothing is checked: fall back to targeting an arbitrary nick via the
+    //    highlighted bot.
     private async Task MemberModeAsync(string flag)
     {
-        var ids = TargetIds();
-        if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
-        var channel = Prompt("Channel:", "#test");
-        if (string.IsNullOrWhiteSpace(channel)) return;
+        if (!_client.IsConnected) { Warn("Connect to a bot host first"); return; }
+        var sign = flag[0];
+        var modeChar = flag[1];
+
+        var checkedIds = CheckedIds();
+        if (checkedIds.Count > 0)
+        {
+            var channel = Prompt($"Channel to {flag} the {checkedIds.Count} selected bot(s) in:", "#test");
+            if (string.IsNullOrWhiteSpace(channel)) return;
+
+            var nicks = checkedIds.Select(NickOf).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+            if (nicks.Count == 0) return;
+            // e.g. "+ooo Alice Bob Carol"
+            var modes = $"{sign}{new string(modeChar, nicks.Count)} {string.Join(" ", nicks)}";
+            await RunBatch(BotCommands.Mode, ("channel", channel), ("modes", modes));
+            return;
+        }
+
+        var id = SelectedId();
+        if (id == null) { Warn("Check bots to target them, or select a bot to issue the command"); return; }
+        var ch = Prompt("Channel:", "#test");
+        if (string.IsNullOrWhiteSpace(ch)) return;
         var nick = Prompt($"Nick to {flag}:", "");
         if (string.IsNullOrWhiteSpace(nick)) return;
-        await RunBatch(BotCommands.Mode, ("channel", channel), ("modes", $"{flag} {nick}"));
+        await RunAction(_client.ActionAsync(BotCommands.Mode, ("id", id), ("channel", ch), ("modes", $"{flag} {nick}")));
     }
 
     // View / add / remove channel bans through one bot's eyes.
@@ -591,11 +614,15 @@ public sealed class ControlForm : Form
     // The bots a command targets: all checked, or the selected row if none checked.
     private List<string> TargetIds()
     {
-        var ids = _botsView.CheckedItems.Cast<ListViewItem>().Select(i => (string)i.Tag!).ToList();
+        var ids = CheckedIds();
         if (ids.Count > 0) return ids;
         var sel = SelectedId();
         return sel != null ? new List<string> { sel } : new();
     }
+
+    // Only the checked bots (no fallback to the highlighted row).
+    private List<string> CheckedIds() =>
+        _botsView.CheckedItems.Cast<ListViewItem>().Select(i => (string)i.Tag!).ToList();
 
     private void SetAllChecked(bool value)
     {

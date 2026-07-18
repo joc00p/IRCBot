@@ -72,9 +72,14 @@ whole group; per-bot failures are reported in the log.
 
 A second button row provides **channel operator commands**: **Mode…** (any
 channel mode string, e.g. `+m`, `+t`, `+l 20`), **Op** / **Deop** (`+o`/`-o`),
-**Voice** / **Devoice** (`+v`/`-v`), and **Bans…**. These prompt for the channel
-(and nick) and send the corresponding `MODE` from each targeted bot — which only
-takes effect if that bot holds operator status on the channel.
+**Voice** / **Devoice** (`+v`/`-v`), and **Bans…**.
+
+For **Op / Deop / Voice / Devoice**: if one or more bots are **checked**, you're
+asked only for the channel, and the mode is applied to the checked bots' own
+nicks (each checked bot issues the combined `MODE`, so whichever holds op applies
+it to the whole group). If nothing is checked, it falls back to asking for a
+channel and an arbitrary target nick, issued by the highlighted bot. A `MODE`
+only takes effect if the issuing bot holds operator status on the channel.
 
 **Bans…** opens a ban manager for a single bot and channel: it lists the
 channel's `+b` entries (fetched from the server's ban-list reply), and lets you
