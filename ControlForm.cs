@@ -566,20 +566,71 @@ public sealed class ControlForm : Form
         await RunAction(_client.ActionAsync(BotCommands.Mode, ("id", id), ("channel", ch), ("modes", $"{flag} {nick}")));
     }
 
-    // Kick a nick from a channel, issued across the checked bots (or the row).
+    // Kick from a channel. If bots are checked, kick those bots (the tool finds
+    // one of your connected operator bots to do it). Otherwise, kick an arbitrary
+    // nick, also issued by an operator bot in that channel.
     private async Task KickAsync()
     {
-        var ids = TargetIds();
-        if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
         if (!_client.IsConnected) { Warn("Connect to a bot host first"); return; }
-        var channel = Prompt("Channel:", DefaultChannel());
-        if (string.IsNullOrWhiteSpace(channel)) return;
-        var nick = Prompt("Nick to kick:", "");
-        if (string.IsNullOrWhiteSpace(nick)) return;
-        var reason = Prompt("Reason (optional):", "Kicked");
-        if (reason == null) return;
-        await RunBatch(BotCommands.Kick, ("channel", channel), ("nick", nick), ("reason", reason));
+        var checkedIds = CheckedIds();
+
+        List<string> targetNicks;
+        string channel;
+        if (checkedIds.Count > 0)
+        {
+            var ch = Prompt($"Kick the {checkedIds.Count} selected bot(s) from channel:", DefaultChannel());
+            if (string.IsNullOrWhiteSpace(ch)) return;
+            channel = Normalize(ch);
+            targetNicks = checkedIds.Select(NickOf).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+        }
+        else
+        {
+            var ch = Prompt("Channel:", DefaultChannel());
+            if (string.IsNullOrWhiteSpace(ch)) return;
+            channel = Normalize(ch);
+            var nick = Prompt("Nick to kick:", "");
+            if (string.IsNullOrWhiteSpace(nick)) return;
+            targetNicks = new List<string> { nick.Trim() };
+        }
+
+        var reason = Prompt("Reason (optional):", "Kicked") ?? "Kicked";
+
+        // Find one of our connected bots that is an operator in the channel;
+        // prefer one that isn't itself being kicked.
+        var opId = FindOpBotId(channel, targetNicks)
+                ?? FindOpBotId(channel, new List<string>());
+        if (opId == null) { Warn($"No connected bot is a channel operator in {channel}"); return; }
+
+        int ok = 0, fail = 0;
+        foreach (var nick in targetNicks)
+        {
+            if (string.Equals(nick, NickOf(opId), StringComparison.OrdinalIgnoreCase)) continue; // don't self-kick the kicker
+            try
+            {
+                var r = await _client.ActionAsync(BotCommands.Kick, ("id", opId), ("channel", channel), ("nick", nick), ("reason", reason));
+                if (r.Ok) ok++; else { fail++; Log($"✗ kick {nick}: {r.Error}"); }
+            }
+            catch (Exception ex) { fail++; Log($"✗ kick {nick}: {ex.Message}"); }
+        }
+        Log($"KICK from {NickOf(opId)} → {ok} ok{(fail > 0 ? $", {fail} failed" : "")}");
+        await RefreshAsync();
     }
+
+    // Id of a connected bot that is an operator in the channel (its live channel
+    // list shows "@#channel"), excluding bots whose nick is in excludeNicks.
+    private string? FindOpBotId(string channel, List<string> excludeNicks)
+    {
+        foreach (var kv in _lastLive)
+        {
+            if (kv.Value.Status != BotStatus.Connected) continue;
+            if (excludeNicks.Any(n => string.Equals(n, kv.Value.Nick, StringComparison.OrdinalIgnoreCase))) continue;
+            if (kv.Value.ChannelsDisplay.Any(c => c == "@" + channel)) return kv.Key;
+        }
+        return null;
+    }
+
+    private static string Normalize(string channel) =>
+        channel.StartsWith('#') || channel.StartsWith('&') ? channel : "#" + channel;
 
     // View / add / remove channel bans through one bot's eyes.
     private async Task ManageBansAsync()

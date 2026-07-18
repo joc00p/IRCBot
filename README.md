@@ -72,9 +72,10 @@ whole group; per-bot failures are reported in the log.
 
 A second button row provides **channel operator commands**: **Mode…** (any
 channel mode string, e.g. `+m`, `+t`, `+l 20`), **Op** / **Deop** (`+o`/`-o`),
-**Voice** / **Devoice** (`+v`/`-v`), **Kick…**, and **Bans…**. **Kick…** prompts
-for a channel, a nick, and an optional reason, and each targeted bot issues the
-`KICK` (whichever holds op carries it out).
+**Voice** / **Devoice** (`+v`/`-v`), **Kick…**, and **Bans…**. **Kick…**: if bots are checked, it kicks **those bots** from a channel you name
+— the tool finds one of your connected operator bots to carry it out. With
+nothing checked, it prompts for a nick to kick instead. Either way it's issued
+by a bot that holds op in the channel (you're warned if none do).
 
 For **Op / Deop / Voice / Devoice**: if one or more bots are **checked**, you're
 asked only for the channel, and the mode is applied to the checked bots' own
