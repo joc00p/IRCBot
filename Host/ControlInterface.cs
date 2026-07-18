@@ -111,6 +111,8 @@ public sealed class ControlInterface(BotHost host, int port, string? password)
                 return host.Part(req.Arg("id"), req.Arg("channel")) ? Ok("Parting") : Fail("No such bot");
             case BotCommands.Say:
                 return host.Say(req.Arg("id"), req.Arg("target"), req.Arg("text")) ? Ok("Sent") : Fail("No such bot");
+            case BotCommands.Mode:
+                return host.Mode(req.Arg("id"), req.Arg("channel"), req.Arg("modes")) ? Ok("Mode sent") : Fail("No such bot");
 
             case BotCommands.Events:
             {

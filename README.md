@@ -65,6 +65,12 @@ boxes are checked, a command falls back to the single highlighted row. Join/Part
 prompt once for the channel and Say once for the message, then apply to the
 whole group; per-bot failures are reported in the log.
 
+A second button row provides **channel operator commands**: **Mode…** (any
+channel mode string, e.g. `+m`, `+t`, `+l 20`), **Op** / **Deop** (`+o`/`-o`),
+and **Voice** / **Devoice** (`+v`/`-v`). These prompt for the channel (and nick)
+and send the corresponding `MODE` from each targeted bot — which only takes
+effect if that bot holds operator status on the channel.
+
 ### Offline roster
 
 The bot roster is owned by the front end and persisted to

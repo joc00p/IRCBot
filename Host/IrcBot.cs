@@ -145,6 +145,17 @@ public sealed class IrcBot
         Send($"PRIVMSG {target} :{text}");
     }
 
+    // Send a channel MODE change (op/deop, voice/devoice, or channel modes).
+    // Requires the bot to hold operator status on the channel server-side.
+    public void Mode(string channel, string modes)
+    {
+        bool connected;
+        lock (_lock) connected = Status == BotStatus.Connected;
+        if (!connected) return;
+        Event($"MODE {channel} {modes}");
+        Send($"MODE {channel} {modes}");
+    }
+
     private async Task RunAsync(CancellationTokenSource cts)
     {
         var ct = cts.Token;

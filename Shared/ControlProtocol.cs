@@ -18,6 +18,7 @@ public static class BotCommands
     public const string Join   = "JOIN";   // args: id, channel
     public const string Part   = "PART";   // args: id, channel
     public const string Say    = "SAY";    // args: id, target, text
+    public const string Mode   = "MODE";   // args: id, channel, modes (e.g. "+o nick", "+m")
     public const string Events = "EVENTS"; // args: since (cursor) -> Events, Cursor
 }
 

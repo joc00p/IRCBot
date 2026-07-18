@@ -105,7 +105,9 @@ public sealed class ControlForm : Form
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 380 };
 
         var botsPanel = new Panel { Dock = DockStyle.Fill };
-        var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 60 };
+        var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 96, WrapContents = true };
+
+        // Row 1 — bot lifecycle and messaging
         AddButton(actions, "☑ All", () => { SetAllChecked(true); return Task.CompletedTask; });
         AddButton(actions, "☐ None", () => { SetAllChecked(false); return Task.CompletedTask; });
         AddButton(actions, "Add Bot…", async () => await AddBotAsync());
@@ -116,7 +118,16 @@ public sealed class ControlForm : Form
         AddButton(actions, "Part…", async () => await BatchJoinPartAsync(BotCommands.Part));
         AddButton(actions, "Say…", async () => await BatchSayAsync());
         AddButton(actions, "Remove", async () => await RemoveBotsAsync());
-        AddButton(actions, "Refresh", async () => await RefreshAsync());
+        var refreshBtn = AddButton(actions, "Refresh", async () => await RefreshAsync());
+        actions.SetFlowBreak(refreshBtn, true); // start channel commands on a new row
+
+        // Row 2 — channel operator commands
+        AddButton(actions, "Mode…", async () => await ChannelModeAsync());
+        AddButton(actions, "Op", async () => await MemberModeAsync("+o"));
+        AddButton(actions, "Deop", async () => await MemberModeAsync("-o"));
+        AddButton(actions, "Voice", async () => await MemberModeAsync("+v"));
+        AddButton(actions, "Devoice", async () => await MemberModeAsync("-v"));
+
         botsPanel.Controls.Add(_botsView);
         botsPanel.Controls.Add(actions);
 
@@ -440,6 +451,30 @@ public sealed class ControlForm : Form
         await RunBatch(BotCommands.Say, ("target", target), ("text", text));
     }
 
+    // Set an arbitrary channel mode string (e.g. +m, +t, -s, +l 20).
+    private async Task ChannelModeAsync()
+    {
+        var ids = TargetIds();
+        if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
+        var channel = Prompt("Channel:", "#test");
+        if (string.IsNullOrWhiteSpace(channel)) return;
+        var modes = Prompt("Modes (e.g. +m, +t, -s, +l 20):", "+t");
+        if (string.IsNullOrWhiteSpace(modes)) return;
+        await RunBatch(BotCommands.Mode, ("channel", channel), ("modes", modes));
+    }
+
+    // Op/deop/voice/devoice a nick on a channel (flag is +o/-o/+v/-v).
+    private async Task MemberModeAsync(string flag)
+    {
+        var ids = TargetIds();
+        if (ids.Count == 0) { Warn("Check one or more bots, or select a row"); return; }
+        var channel = Prompt("Channel:", "#test");
+        if (string.IsNullOrWhiteSpace(channel)) return;
+        var nick = Prompt($"Nick to {flag}:", "");
+        if (string.IsNullOrWhiteSpace(nick)) return;
+        await RunBatch(BotCommands.Mode, ("channel", channel), ("modes", $"{flag} {nick}"));
+    }
+
     // Add works offline: writes to the local roster, and pushes to the host if connected.
     private async Task AddBotAsync()
     {
@@ -552,11 +587,12 @@ public sealed class ControlForm : Form
 
     private string NickOf(string id) => _roster.FirstOrDefault(d => d.Id == id)?.Nick ?? id;
 
-    private static void AddButton(Control parent, string text, Func<Task> onClick)
+    private static Button AddButton(Control parent, string text, Func<Task> onClick)
     {
         var b = new Button { Text = text, AutoSize = true, Margin = new Padding(3) };
         b.Click += async (_, _) => await onClick();
         parent.Controls.Add(b);
+        return b;
     }
 
     private void UI(Action a)

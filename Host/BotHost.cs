@@ -48,6 +48,7 @@ public sealed class BotHost
     public bool Join(string id, string channel) => With(id, b => b.Join(channel));
     public bool Part(string id, string channel) => With(id, b => b.Part(channel));
     public bool Say(string id, string target, string text) => With(id, b => b.Say(target, text));
+    public bool Mode(string id, string channel, string modes) => With(id, b => b.Mode(channel, modes));
 
     public void StopAll() { foreach (var b in _bots.Values) b.Stop(); }
 
