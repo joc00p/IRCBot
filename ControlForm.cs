@@ -426,7 +426,7 @@ public sealed class ControlForm : Form
             var channels = info != null ? string.Join(", ", info.Channels) : string.Join(", ", d.Channels);
             var item = new ListViewItem(new[]
             {
-                d.Nick, d.Host, d.Port.ToString(), d.UseTls ? "🔒" : "", status, channels, info?.LastEvent ?? "", d.Id
+                d.Nick, d.Host, d.Port.ToString(), d.UseTls ? "🔒" : "", $"● {status}", channels, info?.LastEvent ?? "", d.Id
             }) { Tag = d.Id };
             item.ForeColor = info?.Status switch
             {
