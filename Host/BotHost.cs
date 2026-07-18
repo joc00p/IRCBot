@@ -45,10 +45,12 @@ public sealed class BotHost
 
     public bool Start(string id) => With(id, b => b.Start());
     public bool Stop(string id) => With(id, b => b.Stop());
-    public bool Join(string id, string channel) => With(id, b => b.Join(channel));
-    public bool Part(string id, string channel) => With(id, b => b.Part(channel));
-    public bool Say(string id, string target, string text) => With(id, b => b.Say(target, text));
-    public bool Mode(string id, string channel, string modes) => With(id, b => b.Mode(channel, modes));
+
+    // null = no such bot; true = acted while connected; false = bot not connected.
+    public bool? Join(string id, string channel) => WithResult(id, b => b.Join(channel));
+    public bool? Part(string id, string channel) => WithResult(id, b => b.Part(channel));
+    public bool? Say(string id, string target, string text) => WithResult(id, b => b.Say(target, text));
+    public bool? Mode(string id, string channel, string modes) => WithResult(id, b => b.Mode(channel, modes));
 
     // Return the bot's cached ban list for a channel and trigger a fresh fetch.
     public (bool ok, List<ChannelBan> bans) BanList(string id, string channel)
@@ -69,6 +71,9 @@ public sealed class BotHost
         if (_bots.TryGetValue(id, out var bot)) { action(bot); return true; }
         return false;
     }
+
+    private bool? WithResult(string id, Func<IrcBot, bool> action) =>
+        _bots.TryGetValue(id, out var bot) ? action(bot) : null;
 }
 
 // Thread-safe, capped, ordered ring buffer of bot activity. Each event gets a

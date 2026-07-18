@@ -70,6 +70,7 @@ public sealed class BotInfo
     public bool UseTls { get; set; }
     public string Ident { get; set; } = "";
     public string RealName { get; set; } = "";
+    public string CtcpVersion { get; set; } = "";
     public BotStatus Status { get; set; }
     public List<string> Channels { get; set; } = new();
     public string LastEvent { get; set; } = "";
@@ -86,6 +87,7 @@ public sealed class BotConfig
     public string Password { get; set; } = "";   // server PASS; empty = none
     public string Ident { get; set; } = "";       // USER ident; empty = nick
     public string RealName { get; set; } = "";     // empty = "IRCBot <nick>"
+    public string CtcpVersion { get; set; } = "Hihi!"; // reply to CTCP VERSION
     public List<string> Channels { get; set; } = new();
 
     public static BotConfig FromArgs(BotRequest r) => new()
@@ -97,6 +99,7 @@ public sealed class BotConfig
         Password = r.Arg("password"),
         Ident = r.Arg("ident"),
         RealName = r.Arg("realname"),
+        CtcpVersion = r.Args.TryGetValue("ctcpversion", out var cv) ? cv : "Hihi!",
         Channels = r.Arg("channels").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
     };
 }

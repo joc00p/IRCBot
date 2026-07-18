@@ -9,8 +9,13 @@ live status. You point the panel at the bots — never at an IRC server.
 
 Designed to work with the local [IRCServer](https://github.com/joc00p/IRCServer),
 but any IRC server works. Each bot has its own independent connection settings —
-host, port, TLS/SSL, server password, ident, and real name — so different bots
-can point at different servers at once.
+host, port, TLS/SSL, server password, ident, real name, and CTCP VERSION reply
+(default `Hihi!`) — so different bots can point at different servers at once.
+
+Bots auto-respond to CTCP VERSION requests with their configured reply. Runtime
+commands (Start/Stop/Join/Part/Say/Mode) report back when a bot isn't connected
+rather than silently succeeding — Say/Mode fail with "Bot is not connected",
+while Join/Part queue the channel for the next connect.
 
 ## Projects
 

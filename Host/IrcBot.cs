@@ -20,6 +20,7 @@ public sealed class IrcBot
     public string Password { get; private set; } = "";
     public string Ident { get; private set; } = "";
     public string RealName { get; private set; } = "";
+    public string CtcpVersion { get; private set; } = "Hihi!";
 
     public BotStatus Status { get; private set; } = BotStatus.Stopped;
     public string LastEvent { get; private set; } = "created";
@@ -54,6 +55,7 @@ public sealed class IrcBot
         Password = cfg.Password;
         Ident = cfg.Ident;
         RealName = cfg.RealName;
+        CtcpVersion = cfg.CtcpVersion;
         _channels.Clear();
         foreach (var c in cfg.Channels) _channels.Add(Normalize(c));
     }
@@ -72,7 +74,7 @@ public sealed class IrcBot
             return new BotInfo
             {
                 Id = Id, Nick = Nick, Host = Host, Port = Port, UseTls = UseTls,
-                Ident = Ident, RealName = RealName,
+                Ident = Ident, RealName = RealName, CtcpVersion = CtcpVersion,
                 Status = Status, LastEvent = LastEvent, ConnectedUtc = ConnectedUtc,
                 Channels = _channels.ToList()
             };
@@ -122,52 +124,60 @@ public sealed class IrcBot
         try { _tcp?.Close(); } catch { }
     }
 
-    public void Join(string channel)
+    // Returns true if the JOIN went out now; false if queued (bot not connected).
+    public bool Join(string channel)
     {
         var ch = Normalize(channel);
         bool connected;
         lock (_lock) { _channels.Add(ch); connected = Status == BotStatus.Connected; }
-        Event($"JOIN {ch}");
-        if (connected) Send($"JOIN {ch}");
+        if (connected) { Event($"JOIN {ch}"); Send($"JOIN {ch}"); }
+        else Event($"JOIN {ch} queued (not connected)");
+        return connected;
     }
 
-    public void Part(string channel)
+    // Returns true if the PART went out now; false if only de-queued.
+    public bool Part(string channel)
     {
         var ch = Normalize(channel);
         bool connected;
         lock (_lock) { _channels.Remove(ch); connected = Status == BotStatus.Connected; }
-        Event($"PART {ch}");
-        if (connected) Send($"PART {ch}");
+        if (connected) { Event($"PART {ch}"); Send($"PART {ch}"); }
+        else Event($"PART {ch} (de-queued, not connected)");
+        return connected;
     }
 
-    public void Say(string target, string text)
+    // Returns true if sent; false if the bot is not connected.
+    public bool Say(string target, string text)
     {
         bool connected;
         lock (_lock) connected = Status == BotStatus.Connected;
-        if (!connected) return;
+        if (!connected) return false;
         Event($"PRIVMSG {target}");
         Send($"PRIVMSG {target} :{text}");
+        return true;
     }
 
     // Send a channel MODE change (op/deop, voice/devoice, ban/unban, or channel
-    // modes). Requires the bot to hold operator status on the channel server-side.
-    public void Mode(string channel, string modes)
+    // modes). Requires operator status on the channel. Returns false if not connected.
+    public bool Mode(string channel, string modes)
     {
         bool connected;
         lock (_lock) connected = Status == BotStatus.Connected;
-        if (!connected) return;
+        if (!connected) return false;
         Event($"MODE {channel} {modes}");
         Send($"MODE {channel} {modes}");
+        return true;
     }
 
     // Ask the server for the channel's ban list (populates the cache via 367/368).
-    public void RequestBanList(string channel)
+    public bool RequestBanList(string channel)
     {
         bool connected;
         lock (_lock) { connected = Status == BotStatus.Connected; _banBuilding[channel] = new(); }
-        if (!connected) return;
+        if (!connected) return false;
         Event($"requesting ban list for {channel}");
         Send($"MODE {channel} +b");
+        return true;
     }
 
     public List<ChannelBan> GetBans(string channel)
@@ -257,14 +267,18 @@ public sealed class IrcBot
             return;
         }
 
+        string? sender = null;
         var body = raw;
         if (body.StartsWith(':'))
         {
             int sp = body.IndexOf(' ');
             if (sp < 0) return;
+            sender = body[1..sp]; // nick!user@host
             body = body[(sp + 1)..];
         }
         var cmd = body.Split(' ', 2)[0];
+
+        if (cmd == "PRIVMSG") { HandlePrivmsg(sender, body); return; }
 
         if (cmd == "001") // RPL_WELCOME → registration complete
         {
@@ -317,6 +331,28 @@ public sealed class IrcBot
                 }
                 Event($"ban list for {p[2]}: {count} entr{(count == 1 ? "y" : "ies")}");
             }
+        }
+    }
+
+    // Handle incoming PRIVMSG, replying to CTCP VERSION requests.
+    private void HandlePrivmsg(string? sender, string body)
+    {
+        // body = "PRIVMSG <target> :<text>"
+        var parts = body.Split(' ', 3);
+        if (parts.Length < 3) return;
+        var text = parts[2];
+        if (text.StartsWith(':')) text = text[1..];
+
+        // CTCP is wrapped in \x01 … \x01
+        if (text.Length < 2 || text[0] != '\u0001' || text[^1] != '\u0001') return;
+        var inner = text.Trim('\u0001');
+        var from = sender?.Split('!')[0];
+        if (from == null) return;
+
+        if (inner.Equals("VERSION", StringComparison.OrdinalIgnoreCase))
+        {
+            Event($"CTCP VERSION from {from} → \"{CtcpVersion}\"");
+            Send($"NOTICE {from} :\u0001VERSION {CtcpVersion}\u0001");
         }
     }
 

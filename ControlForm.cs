@@ -507,6 +507,7 @@ public sealed class ControlForm : Form
             Password = dlg.Password,
             Ident = dlg.Ident,
             RealName = dlg.RealName,
+            CtcpVersion = dlg.CtcpVersion,
             Channels = SplitChannels(dlg.Channels)
         };
         _roster.Add(def);
@@ -537,7 +538,7 @@ public sealed class ControlForm : Form
         if (def == null) return;
 
         using var dlg = new AddBotDialog("Edit Bot", def.Nick, def.Host, def.Port.ToString(),
-            def.UseTls, def.Password, def.Ident, def.RealName, string.Join(", ", def.Channels));
+            def.UseTls, def.Password, def.Ident, def.RealName, def.CtcpVersion, string.Join(", ", def.Channels));
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         if (string.IsNullOrWhiteSpace(dlg.Nick)) { Warn("Nick is required"); return; }
 
@@ -548,6 +549,7 @@ public sealed class ControlForm : Form
         def.Password = dlg.Password;
         def.Ident = dlg.Ident;
         def.RealName = dlg.RealName;
+        def.CtcpVersion = dlg.CtcpVersion;
         def.Channels = SplitChannels(dlg.Channels);
         SaveRoster();
         Log($"Edited bot {def.Nick} (local roster).");
@@ -656,20 +658,23 @@ public sealed class BotDef
     public string Password { get; set; } = "";
     public string Ident { get; set; } = "";
     public string RealName { get; set; } = "";
+    public string CtcpVersion { get; set; } = "Hihi!";
     public List<string> Channels { get; set; } = new();
 
     public (string, string)[] ToArgs() => new[]
     {
         ("id", Id), ("nick", Nick), ("host", Host), ("port", Port.ToString()),
         ("tls", UseTls ? "true" : "false"), ("password", Password),
-        ("ident", Ident), ("realname", RealName),
+        ("ident", Ident), ("realname", RealName), ("ctcpversion", CtcpVersion),
         ("channels", string.Join(",", Channels))
     };
 
     public static BotDef FromInfo(BotInfo b) => new()
     {
         Id = b.Id, Nick = b.Nick, Host = b.Host, Port = b.Port, UseTls = b.UseTls,
-        Ident = b.Ident, RealName = b.RealName, Channels = b.Channels.ToList()
+        Ident = b.Ident, RealName = b.RealName,
+        CtcpVersion = string.IsNullOrEmpty(b.CtcpVersion) ? "Hihi!" : b.CtcpVersion,
+        Channels = b.Channels.ToList()
     };
 }
 
@@ -683,6 +688,7 @@ public sealed class AddBotDialog : Form
     private readonly TextBox _pass = new() { Width = 250, UseSystemPasswordChar = true };
     private readonly TextBox _ident = new() { Width = 250 };
     private readonly TextBox _real = new() { Width = 250 };
+    private readonly TextBox _ctcp = new() { Width = 250 };
     private readonly TextBox _channels = new() { Width = 250 };
 
     public string Nick => _nick.Text.Trim();
@@ -692,20 +698,22 @@ public sealed class AddBotDialog : Form
     public string Password => _pass.Text;
     public string Ident => _ident.Text.Trim();
     public string RealName => _real.Text.Trim();
+    public string CtcpVersion => _ctcp.Text;
     public string Channels => _channels.Text.Trim();
 
     public AddBotDialog(string title = "Add Bot", string nick = "MyBot", string host = "localhost",
         string port = "6667", bool tls = false, string password = "", string ident = "",
-        string realName = "", string channels = "#test")
+        string realName = "", string ctcpVersion = "Hihi!", string channels = "#test")
     {
         Text = title;
-        Width = 420; Height = 350;
+        Width = 420; Height = 382;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterParent;
         MaximizeBox = false; MinimizeBox = false;
 
         _nick.Text = nick; _host.Text = host; _port.Text = port; _tls.Checked = tls;
-        _pass.Text = password; _ident.Text = ident; _real.Text = realName; _channels.Text = channels;
+        _pass.Text = password; _ident.Text = ident; _real.Text = realName;
+        _ctcp.Text = ctcpVersion; _channels.Text = channels;
 
         int y = 14;
         Label Row(string label, Control field)
@@ -723,6 +731,7 @@ public sealed class AddBotDialog : Form
         var lPass = Row("Server password:", _pass);
         var lIdent = Row("Ident (optional):", _ident);
         var lReal = Row("Real name (optional):", _real);
+        var lCtcp = Row("CTCP version reply:", _ctcp);
         var lChan = Row("Channels (csv):", _channels);
 
         var ok = new Button { Text = "Save", DialogResult = DialogResult.OK, Left = 234, Top = y + 6, Width = 75 };
@@ -731,7 +740,7 @@ public sealed class AddBotDialog : Form
         Controls.AddRange(new Control[]
         {
             lNick, _nick, lHost, _host, lPort, _port, _tls,
-            lPass, _pass, lIdent, _ident, lReal, _real, lChan, _channels,
+            lPass, _pass, lIdent, _ident, lReal, _real, lCtcp, _ctcp, lChan, _channels,
             ok, cancel
         });
         AcceptButton = ok; CancelButton = cancel;

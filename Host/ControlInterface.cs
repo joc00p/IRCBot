@@ -106,13 +106,31 @@ public sealed class ControlInterface(BotHost host, int port, string? password)
             case BotCommands.Stop:
                 return host.Stop(req.Arg("id")) ? Ok("Stopped") : Fail("No such bot");
             case BotCommands.Join:
-                return host.Join(req.Arg("id"), req.Arg("channel")) ? Ok("Joining") : Fail("No such bot");
+            {
+                var res = host.Join(req.Arg("id"), req.Arg("channel"));
+                return res is null ? Fail("No such bot")
+                     : res.Value ? Ok($"Joining {req.Arg("channel")}")
+                     : Ok($"Bot not connected — {req.Arg("channel")} queued for next connect");
+            }
             case BotCommands.Part:
-                return host.Part(req.Arg("id"), req.Arg("channel")) ? Ok("Parting") : Fail("No such bot");
+            {
+                var res = host.Part(req.Arg("id"), req.Arg("channel"));
+                return res is null ? Fail("No such bot")
+                     : res.Value ? Ok($"Parting {req.Arg("channel")}")
+                     : Ok($"Bot not connected — {req.Arg("channel")} removed from queue");
+            }
             case BotCommands.Say:
-                return host.Say(req.Arg("id"), req.Arg("target"), req.Arg("text")) ? Ok("Sent") : Fail("No such bot");
+            {
+                var res = host.Say(req.Arg("id"), req.Arg("target"), req.Arg("text"));
+                return res is null ? Fail("No such bot")
+                     : res.Value ? Ok("Sent") : Fail("Bot is not connected");
+            }
             case BotCommands.Mode:
-                return host.Mode(req.Arg("id"), req.Arg("channel"), req.Arg("modes")) ? Ok("Mode sent") : Fail("No such bot");
+            {
+                var res = host.Mode(req.Arg("id"), req.Arg("channel"), req.Arg("modes"));
+                return res is null ? Fail("No such bot")
+                     : res.Value ? Ok("Mode sent") : Fail("Bot is not connected");
+            }
 
             case BotCommands.BanList:
             {
