@@ -28,6 +28,8 @@ public sealed class IrcBot
 
     private readonly object _lock = new();
     private readonly HashSet<string> _channels = new(StringComparer.OrdinalIgnoreCase);
+    // This bot's own status per channel: "@" op, "+" voice, "" none.
+    private readonly Dictionary<string, string> _channelPrefix = new(StringComparer.OrdinalIgnoreCase);
     private readonly EventLog? _events;
 
     // Channel ban lists captured from the server's 367/368 replies.
@@ -76,7 +78,8 @@ public sealed class IrcBot
                 Id = Id, Nick = Nick, Host = Host, Port = Port, UseTls = UseTls,
                 Ident = Ident, RealName = RealName, CtcpVersion = CtcpVersion,
                 Status = Status, LastEvent = LastEvent, ConnectedUtc = ConnectedUtc,
-                Channels = _channels.ToList()
+                Channels = _channels.ToList(),
+                ChannelsDisplay = _channels.Select(c => _channelPrefix.GetValueOrDefault(c, "") + c).ToList()
             };
     }
 
@@ -117,6 +120,7 @@ public sealed class IrcBot
             w = _writer;
             Status = BotStatus.Stopped;
             ConnectedUtc = null;
+            _channelPrefix.Clear();
         }
         Event("stopped");
         try { w?.WriteLine("QUIT :bye"); } catch { }
@@ -140,7 +144,7 @@ public sealed class IrcBot
     {
         var ch = Normalize(channel);
         bool connected;
-        lock (_lock) { _channels.Remove(ch); connected = Status == BotStatus.Connected; }
+        lock (_lock) { _channels.Remove(ch); _channelPrefix.Remove(ch); connected = Status == BotStatus.Connected; }
         if (connected) { Event($"PART {ch}"); Send($"PART {ch}"); }
         else Event($"PART {ch} (de-queued, not connected)");
         return connected;
@@ -252,7 +256,7 @@ public sealed class IrcBot
             lock (_lock)
             {
                 owner = ReferenceEquals(_cts, cts);
-                if (owner) { Status = BotStatus.Error; ConnectedUtc = null; }
+                if (owner) { Status = BotStatus.Error; ConnectedUtc = null; _channelPrefix.Clear(); }
             }
             if (owner) Event($"error: {ex.Message}");
         }
@@ -274,6 +278,7 @@ public sealed class IrcBot
             {
                 if (!wasStopped) Status = BotStatus.Stopped;
                 ConnectedUtc = null;
+                _channelPrefix.Clear();
             }
         }
         if (stillOwner && !wasStopped) Event("disconnected");
@@ -353,6 +358,58 @@ public sealed class IrcBot
                     count = list.Count;
                 }
                 Event($"ban list for {p[2]}: {count} entr{(count == 1 ? "y" : "ies")}");
+            }
+        }
+        else if (cmd == "353") HandleNames(body);   // RPL_NAMREPLY → learn our own prefix
+        else if (cmd == "MODE") HandleModeLine(body); // track op/voice changes to us
+    }
+
+    // RPL_NAMREPLY: "353 <me> = <channel> :<prefixed nicks>" — find our own prefix.
+    private void HandleNames(string body)
+    {
+        int colon = body.IndexOf(':');
+        if (colon < 0) return;
+        var header = body[..colon].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var chan = header.LastOrDefault(t => t.StartsWith('#') || t.StartsWith('&'));
+        if (chan == null) return;
+
+        foreach (var entry in body[(colon + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var prefix = "";
+            var name = entry;
+            if (name.Length > 0 && (name[0] == '@' || name[0] == '+')) { prefix = name[0].ToString(); name = name[1..]; }
+            if (string.Equals(name, Nick, StringComparison.OrdinalIgnoreCase))
+            {
+                lock (_lock) if (_channels.Contains(chan)) _channelPrefix[chan] = prefix;
+                break;
+            }
+        }
+    }
+
+    // Track channel MODE changes that op/deop/voice/devoice this bot.
+    private void HandleModeLine(string body)
+    {
+        var parts = body.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3) return;
+        var chan = parts[1];
+        if (!chan.StartsWith('#') && !chan.StartsWith('&')) return;
+
+        var flags = parts[2];
+        var args = parts.Skip(3).ToArray();
+        int argIdx = 0;
+        char sign = '+';
+        foreach (var c in flags)
+        {
+            if (c is '+' or '-') { sign = c; continue; }
+            string? param = (c is 'o' or 'v' or 'k' or 'l' or 'b') && argIdx < args.Length ? args[argIdx++] : null;
+            if ((c == 'o' || c == 'v') && param != null && string.Equals(param, Nick, StringComparison.OrdinalIgnoreCase))
+            {
+                lock (_lock)
+                {
+                    var cur = _channelPrefix.GetValueOrDefault(chan, "");
+                    if (sign == '+') { if (c == 'o') _channelPrefix[chan] = "@"; else if (cur != "@") _channelPrefix[chan] = "+"; }
+                    else { if (c == 'o' && cur == "@") _channelPrefix[chan] = ""; else if (c == 'v' && cur == "+") _channelPrefix[chan] = ""; }
+                }
             }
         }
     }

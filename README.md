@@ -100,6 +100,9 @@ the host; stop it first.
 The grid shows each bot's nick, server host, port, status (colour-coded:
 green = connected, orange = connecting, red = error, grey = stopped/offline),
 channels, and last event. It auto-refreshes every 2 seconds while connected.
+Each channel in the Channels column is prefixed with `@` when that bot is a
+channel operator there or `+` when it holds voice (tracked from NAMES replies
+and MODE changes).
 
 Below the grid are two consoles: **Activity log** (panel/control activity and
 command results) and **Bot activity** — a live, per-bot IRC-level narrative

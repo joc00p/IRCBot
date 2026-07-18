@@ -73,7 +73,8 @@ public sealed class BotInfo
     public string RealName { get; set; } = "";
     public string CtcpVersion { get; set; } = "";
     public BotStatus Status { get; set; }
-    public List<string> Channels { get; set; } = new();
+    public List<string> Channels { get; set; } = new();          // plain names
+    public List<string> ChannelsDisplay { get; set; } = new();   // with @/+ self-prefix
     public string LastEvent { get; set; } = "";
     public DateTime? ConnectedUtc { get; set; }
 }

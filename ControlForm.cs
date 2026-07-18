@@ -443,7 +443,7 @@ public sealed class ControlForm : Form
         {
             live.TryGetValue(d.Id, out var info);
             var status = info?.Status.ToString() ?? (_client.IsConnected ? "Not on host" : "Offline");
-            var channels = info != null ? string.Join(", ", info.Channels) : string.Join(", ", d.Channels);
+            var channels = info != null ? string.Join(", ", info.ChannelsDisplay) : string.Join(", ", d.Channels);
             var item = new ListViewItem(new[]
             {
                 d.Nick, d.Host, d.Port.ToString(), d.UseTls ? "🔒" : "", $"● {status}", channels, info?.LastEvent ?? "", d.Id
