@@ -243,7 +243,18 @@ public sealed class ControlForm : Form
 
     private static string? FindHostExe()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        var baseDir = AppContext.BaseDirectory;
+
+        // 1) Bundled alongside the app (how it ships to other machines).
+        foreach (var candidate in new[]
+        {
+            Path.Combine(baseDir, "BotHost", "IRCBotHost.exe"),
+            Path.Combine(baseDir, "IRCBotHost.exe")
+        })
+            if (File.Exists(candidate)) return candidate;
+
+        // 2) Dev tree: search up for the sibling Host build output.
+        var dir = new DirectoryInfo(baseDir);
         for (int i = 0; i < 8 && dir != null; i++, dir = dir.Parent)
         {
             var hostBin = Path.Combine(dir.FullName, "Host", "bin");

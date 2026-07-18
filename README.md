@@ -26,6 +26,13 @@ can point at different servers at once.
 dotnet build IRCBot.slnx -c Release
 ```
 
+Building the control app also builds the bots host and bundles it into a
+`BotHost\` subfolder of the control app's output. So to deploy to another
+machine, copy the control app's output folder (e.g.
+`bin\Release\net10.0-windows\`) as a whole — **Launch Bot Host** finds the
+bundled `BotHost\IRCBotHost.exe` there. (The target machine needs the .NET 10
+Windows Desktop runtime installed.)
+
 ## Run (control front end)
 
 From the repo root, with no arguments:

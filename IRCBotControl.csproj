@@ -16,5 +16,22 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Shared\IRCBot.Shared.csproj" />
+    <!-- Build the bots host too, but don't link it — we only want its exe. -->
+    <ProjectReference Include="Host\IRCBotHost.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
+
+  <!-- Bundle the bots host next to the control app (in a BotHost subfolder) so
+       "Launch Bot Host" works after the app is copied to another machine. -->
+  <Target Name="BundleBotHost" AfterTargets="Build">
+    <ItemGroup>
+      <_BotHostFiles Include="$(MSBuildProjectDirectory)\Host\bin\$(Configuration)\net10.0\**\*.*" />
+    </ItemGroup>
+    <Copy Condition="'@(_BotHostFiles)' != ''"
+          SourceFiles="@(_BotHostFiles)"
+          DestinationFiles="@(_BotHostFiles->'$(OutDir)BotHost\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>
