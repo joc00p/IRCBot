@@ -114,6 +114,12 @@ public sealed class ControlInterface(BotHost host, int port, string? password)
             case BotCommands.Mode:
                 return host.Mode(req.Arg("id"), req.Arg("channel"), req.Arg("modes")) ? Ok("Mode sent") : Fail("No such bot");
 
+            case BotCommands.BanList:
+            {
+                var (ok, bans) = host.BanList(req.Arg("id"), req.Arg("channel"));
+                return ok ? new BotResponse { Ok = true, ChannelBans = bans } : Fail("No such bot");
+            }
+
             case BotCommands.Events:
             {
                 long since = long.TryParse(req.Arg("since"), out var c) ? c : 0;

@@ -67,9 +67,15 @@ whole group; per-bot failures are reported in the log.
 
 A second button row provides **channel operator commands**: **Mode…** (any
 channel mode string, e.g. `+m`, `+t`, `+l 20`), **Op** / **Deop** (`+o`/`-o`),
-and **Voice** / **Devoice** (`+v`/`-v`). These prompt for the channel (and nick)
-and send the corresponding `MODE` from each targeted bot — which only takes
-effect if that bot holds operator status on the channel.
+**Voice** / **Devoice** (`+v`/`-v`), and **Bans…**. These prompt for the channel
+(and nick) and send the corresponding `MODE` from each targeted bot — which only
+takes effect if that bot holds operator status on the channel.
+
+**Bans…** opens a ban manager for a single bot and channel: it lists the
+channel's `+b` entries (fetched from the server's ban-list reply), and lets you
+**add** a ban mask (`+b`) or **remove** the selected one (`-b`). This needs a
+server that supports channel bans (real IRC servers do; the bundled local
+IRCServer's bans are admin-only).
 
 ### Offline roster
 

@@ -127,6 +127,7 @@ public sealed class ControlForm : Form
         AddButton(actions, "Deop", async () => await MemberModeAsync("-o"));
         AddButton(actions, "Voice", async () => await MemberModeAsync("+v"));
         AddButton(actions, "Devoice", async () => await MemberModeAsync("-v"));
+        AddButton(actions, "Bans…", async () => await ManageBansAsync());
 
         botsPanel.Controls.Add(_botsView);
         botsPanel.Controls.Add(actions);
@@ -475,6 +476,20 @@ public sealed class ControlForm : Form
         await RunBatch(BotCommands.Mode, ("channel", channel), ("modes", $"{flag} {nick}"));
     }
 
+    // View / add / remove channel bans through one bot's eyes.
+    private async Task ManageBansAsync()
+    {
+        var ids = TargetIds();
+        if (ids.Count != 1) { Warn("Select or check exactly one bot to manage bans"); return; }
+        if (!_client.IsConnected) { Warn("Connect to a bot host first"); return; }
+        var channel = Prompt("Channel to manage bans for:", "#test");
+        if (string.IsNullOrWhiteSpace(channel)) return;
+
+        using var dlg = new BanManagerDialog(_client, ids[0], NickOf(ids[0]), channel.Trim());
+        dlg.ShowDialog(this);
+        await RefreshAsync();
+    }
+
     // Add works offline: writes to the local roster, and pushes to the host if connected.
     private async Task AddBotAsync()
     {
@@ -720,5 +735,109 @@ public sealed class AddBotDialog : Form
             ok, cancel
         });
         AcceptButton = ok; CancelButton = cancel;
+    }
+}
+
+// View and edit a channel's +b ban list through one bot. Ban/unban go out as
+// MODE +b/-b; the list is fetched from the server (367/368) via BANLIST.
+public sealed class BanManagerDialog : Form
+{
+    private readonly BotControlClient _client;
+    private readonly string _botId;
+    private readonly TextBox _channel;
+    private readonly ListView _list;
+    private readonly Label _status;
+
+    public BanManagerDialog(BotControlClient client, string botId, string botNick, string channel)
+    {
+        _client = client;
+        _botId = botId;
+
+        Text = $"Channel bans — via {botNick}";
+        Width = 560; Height = 420;
+        StartPosition = FormStartPosition.CenterParent;
+        MinimizeBox = false; MaximizeBox = false;
+
+        _channel = new TextBox { Left = 70, Top = 12, Width = 200, Text = channel };
+        var listBtn = new Button { Text = "List", Left = 278, Top = 10, Width = 70 };
+        _status = new Label { Left = 356, Top = 15, Width = 180, Text = "" };
+
+        _list = new ListView
+        {
+            Left = 12, Top = 44, Width = 524, Height = 280, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+            View = View.Details, FullRowSelect = true, GridLines = true, MultiSelect = false
+        };
+        _list.Columns.Add("Mask", 260);
+        _list.Columns.Add("Set by", 130);
+        _list.Columns.Add("Set at", 120);
+
+        var banBtn = new Button { Text = "Ban mask…", Left = 12, Top = 332, Width = 100, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
+        var unbanBtn = new Button { Text = "Remove", Left = 118, Top = 332, Width = 90, Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
+        var closeBtn = new Button { Text = "Close", DialogResult = DialogResult.OK, Left = 456, Top = 332, Width = 80, Anchor = AnchorStyles.Bottom | AnchorStyles.Right };
+
+        listBtn.Click += async (_, _) => await RefreshBansAsync();
+        banBtn.Click += async (_, _) => await BanAsync();
+        unbanBtn.Click += async (_, _) => await UnbanAsync();
+
+        Controls.AddRange(new Control[]
+        {
+            new Label { Text = "Channel:", Left = 12, Top = 15, Width = 55 },
+            _channel, listBtn, _status, _list, banBtn, unbanBtn, closeBtn
+        });
+        AcceptButton = closeBtn;
+        Load += async (_, _) => await RefreshBansAsync();
+    }
+
+    private async Task RefreshBansAsync()
+    {
+        var ch = _channel.Text.Trim();
+        if (string.IsNullOrWhiteSpace(ch)) return;
+        try
+        {
+            _status.Text = "Fetching…";
+            // First call triggers the server query; wait, then read the cache.
+            await _client.ActionAsync(BotCommands.BanList, ("id", _botId), ("channel", ch));
+            await Task.Delay(800);
+            var r = await _client.ActionAsync(BotCommands.BanList, ("id", _botId), ("channel", ch));
+
+            _list.Items.Clear();
+            if (r.ChannelBans != null)
+                foreach (var b in r.ChannelBans)
+                    _list.Items.Add(new ListViewItem(new[] { b.Mask, b.SetBy, b.SetAt }));
+            _status.Text = $"{_list.Items.Count} ban(s)";
+        }
+        catch (Exception ex) { _status.Text = "Error"; MessageBox.Show(this, ex.Message, "Bans"); }
+    }
+
+    private async Task BanAsync()
+    {
+        var ch = _channel.Text.Trim();
+        var mask = ShowPrompt("Ban mask (e.g. nick!*@*, *!*@host):", "*!*@*");
+        if (string.IsNullOrWhiteSpace(mask)) return;
+        await _client.ActionAsync(BotCommands.Mode, ("id", _botId), ("channel", ch), ("modes", $"+b {mask}"));
+        await Task.Delay(300);
+        await RefreshBansAsync();
+    }
+
+    private async Task UnbanAsync()
+    {
+        if (_list.SelectedItems.Count == 0) { MessageBox.Show(this, "Select a ban to remove", "Bans"); return; }
+        var ch = _channel.Text.Trim();
+        var mask = _list.SelectedItems[0].SubItems[0].Text;
+        await _client.ActionAsync(BotCommands.Mode, ("id", _botId), ("channel", ch), ("modes", $"-b {mask}"));
+        await Task.Delay(300);
+        await RefreshBansAsync();
+    }
+
+    private string? ShowPrompt(string label, string def)
+    {
+        using var dlg = new Form { Text = "Ban mask", Width = 440, Height = 170, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
+        var lbl = new Label { Text = label, Left = 12, Top = 12, Width = 400 };
+        var box = new TextBox { Left = 12, Top = 40, Width = 400, Text = def };
+        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Left = 256, Top = 80, Width = 75 };
+        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Left = 337, Top = 80, Width = 75 };
+        dlg.Controls.AddRange(new Control[] { lbl, box, ok, cancel });
+        dlg.AcceptButton = ok; dlg.CancelButton = cancel;
+        return dlg.ShowDialog(this) == DialogResult.OK ? box.Text.Trim() : null;
     }
 }

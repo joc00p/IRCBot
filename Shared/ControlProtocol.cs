@@ -18,8 +18,9 @@ public static class BotCommands
     public const string Join   = "JOIN";   // args: id, channel
     public const string Part   = "PART";   // args: id, channel
     public const string Say    = "SAY";    // args: id, target, text
-    public const string Mode   = "MODE";   // args: id, channel, modes (e.g. "+o nick", "+m")
-    public const string Events = "EVENTS"; // args: since (cursor) -> Events, Cursor
+    public const string Mode    = "MODE";    // args: id, channel, modes (e.g. "+o nick", "+m")
+    public const string BanList = "BANLIST"; // args: id, channel -> ChannelBans (and refreshes cache)
+    public const string Events  = "EVENTS";  // args: since (cursor) -> Events, Cursor
 }
 
 public enum BotStatus { Stopped, Connecting, Connected, Error }
@@ -39,6 +40,15 @@ public sealed class BotResponse
     public List<BotInfo>? Bots { get; set; }
     public List<BotEvent>? Events { get; set; }
     public long Cursor { get; set; }
+    public List<ChannelBan>? ChannelBans { get; set; }
+}
+
+// A +b entry on a channel, as reported by the server (RPL_BANLIST / 367).
+public sealed class ChannelBan
+{
+    public string Mask { get; set; } = "";
+    public string SetBy { get; set; } = "";
+    public string SetAt { get; set; } = "";
 }
 
 // A single line of bot activity (connecting, TLS, registering, join, error…).

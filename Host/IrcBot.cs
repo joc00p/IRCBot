@@ -29,6 +29,10 @@ public sealed class IrcBot
     private readonly HashSet<string> _channels = new(StringComparer.OrdinalIgnoreCase);
     private readonly EventLog? _events;
 
+    // Channel ban lists captured from the server's 367/368 replies.
+    private readonly Dictionary<string, List<ChannelBan>> _banCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<ChannelBan>> _banBuilding = new(StringComparer.OrdinalIgnoreCase);
+
     private TcpClient? _tcp;
     private StreamWriter? _writer;
     private CancellationTokenSource? _cts;
@@ -145,8 +149,8 @@ public sealed class IrcBot
         Send($"PRIVMSG {target} :{text}");
     }
 
-    // Send a channel MODE change (op/deop, voice/devoice, or channel modes).
-    // Requires the bot to hold operator status on the channel server-side.
+    // Send a channel MODE change (op/deop, voice/devoice, ban/unban, or channel
+    // modes). Requires the bot to hold operator status on the channel server-side.
     public void Mode(string channel, string modes)
     {
         bool connected;
@@ -154,6 +158,22 @@ public sealed class IrcBot
         if (!connected) return;
         Event($"MODE {channel} {modes}");
         Send($"MODE {channel} {modes}");
+    }
+
+    // Ask the server for the channel's ban list (populates the cache via 367/368).
+    public void RequestBanList(string channel)
+    {
+        bool connected;
+        lock (_lock) { connected = Status == BotStatus.Connected; _banBuilding[channel] = new(); }
+        if (!connected) return;
+        Event($"requesting ban list for {channel}");
+        Send($"MODE {channel} +b");
+    }
+
+    public List<ChannelBan> GetBans(string channel)
+    {
+        lock (_lock)
+            return _banCache.TryGetValue(channel, out var l) ? new List<ChannelBan>(l) : new();
     }
 
     private async Task RunAsync(CancellationTokenSource cts)
@@ -263,6 +283,40 @@ public sealed class IrcBot
             lock (_lock) Nick += "_";
             Event($"nick in use, retrying as {Nick}");
             Send($"NICK {Nick}");
+        }
+        else if (cmd == "367") // RPL_BANLIST: <me> <channel> <mask> [<setBy> <setAt>]
+        {
+            var p = body.Split(' ');
+            if (p.Length >= 4)
+            {
+                var ban = new ChannelBan
+                {
+                    Mask = p[3],
+                    SetBy = p.Length > 4 ? p[4] : "",
+                    SetAt = p.Length > 5 ? p[5] : ""
+                };
+                lock (_lock)
+                {
+                    if (!_banBuilding.TryGetValue(p[2], out var list)) { list = new(); _banBuilding[p[2]] = list; }
+                    list.Add(ban);
+                }
+            }
+        }
+        else if (cmd == "368") // RPL_ENDOFBANLIST: <me> <channel> :End of ban list
+        {
+            var p = body.Split(' ');
+            if (p.Length >= 3)
+            {
+                int count;
+                lock (_lock)
+                {
+                    var list = _banBuilding.TryGetValue(p[2], out var l) ? l : new();
+                    _banCache[p[2]] = list;
+                    _banBuilding[p[2]] = new();
+                    count = list.Count;
+                }
+                Event($"ban list for {p[2]}: {count} entr{(count == 1 ? "y" : "ies")}");
+            }
         }
     }
 

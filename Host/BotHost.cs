@@ -50,6 +50,18 @@ public sealed class BotHost
     public bool Say(string id, string target, string text) => With(id, b => b.Say(target, text));
     public bool Mode(string id, string channel, string modes) => With(id, b => b.Mode(channel, modes));
 
+    // Return the bot's cached ban list for a channel and trigger a fresh fetch.
+    public (bool ok, List<ChannelBan> bans) BanList(string id, string channel)
+    {
+        if (_bots.TryGetValue(id, out var b))
+        {
+            var bans = b.GetBans(channel);
+            b.RequestBanList(channel);
+            return (true, bans);
+        }
+        return (false, new());
+    }
+
     public void StopAll() { foreach (var b in _bots.Values) b.Stop(); }
 
     private bool With(string id, Action<IrcBot> action)
