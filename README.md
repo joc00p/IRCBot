@@ -105,6 +105,10 @@ narrative streamed from the host (connecting, socket connected, TLS established,
 registering, connected, joining, PING/PONG, errors, disconnects), so you can
 see exactly what each bot is trying to do.
 
+The bot list and the two consoles are separated by **draggable splitters**, so
+you can resize each pane up or down; each pane scrolls independently when its
+content runs off-screen.
+
 ## Run the bot host on its own
 
 ```

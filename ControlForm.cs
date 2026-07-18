@@ -51,6 +51,10 @@ public sealed class ControlForm : Form
     };
     private long _eventCursor;
 
+    // Draggable splitters between the bot list, activity log, and bot activity.
+    private SplitContainer? _mainSplit;
+    private SplitContainer? _logSplit;
+
     public ControlForm()
     {
         Text = "IRC Bot Remote Control";
@@ -79,6 +83,20 @@ public sealed class ControlForm : Form
         _botsView.DoubleClick += async (_, _) => await EditBotAsync();
         FormClosing += (_, _) => { _timer.Stop(); _client.Dispose(); StopHost(); };
 
+        // Set the splitter proportions once the form has its real size (setting
+        // them in the initializer clamps against the tiny default size).
+        Load += (_, _) =>
+        {
+            try
+            {
+                if (_mainSplit is { } m && m.Height > m.Panel1MinSize + m.Panel2MinSize + m.SplitterWidth)
+                    m.SplitterDistance = (int)(m.Height * 0.55);
+                if (_logSplit is { } l && l.Height > l.Panel1MinSize + l.Panel2MinSize + l.SplitterWidth)
+                    l.SplitterDistance = (int)(l.Height * 0.5);
+            }
+            catch { }
+        };
+
         RenderGrid(new());
         Log($"Roster loaded from {RosterPath} ({_roster.Count} bot(s)). Add/edit works offline.");
     }
@@ -102,7 +120,14 @@ public sealed class ControlForm : Form
         bar.Controls.Add(_status);
         bar.Controls.Add(_hostStatus);
 
-        var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 380 };
+        // Distances are set on Load (below) once the real size is known.
+        _mainSplit = new SplitContainer
+        {
+            Dock = DockStyle.Fill, Orientation = Orientation.Horizontal,
+            SplitterWidth = 6, Panel1MinSize = 120, Panel2MinSize = 100,
+            BackColor = SystemColors.ControlDark
+        };
+        var split = _mainSplit;
 
         var botsPanel = new Panel { Dock = DockStyle.Fill };
         var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 96, WrapContents = true };
@@ -135,10 +160,15 @@ public sealed class ControlForm : Form
         split.Panel1.Controls.Add(botsPanel);
 
         // Two stacked consoles: panel/control activity on top, bot IRC activity below.
-        var logs = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
-        logs.Panel1.Controls.Add(WithHeader(_log, "Activity log"));
-        logs.Panel2.Controls.Add(WithHeader(_botLog, "Bot connection activity"));
-        split.Panel2.Controls.Add(logs);
+        _logSplit = new SplitContainer
+        {
+            Dock = DockStyle.Fill, Orientation = Orientation.Horizontal,
+            SplitterWidth = 6, Panel1MinSize = 60, Panel2MinSize = 60,
+            BackColor = SystemColors.ControlDark
+        };
+        _logSplit.Panel1.Controls.Add(WithHeader(_log, "Activity log"));
+        _logSplit.Panel2.Controls.Add(WithHeader(_botLog, "Bot connection activity"));
+        split.Panel2.Controls.Add(_logSplit);
 
         Controls.Add(split);
         Controls.Add(bar);
