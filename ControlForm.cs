@@ -166,7 +166,7 @@ public sealed class ControlForm : Form
             SplitterWidth = 6, Panel1MinSize = 60, Panel2MinSize = 60
         };
         _logSplit.Panel1.Controls.Add(WithHeader(_log, "Activity log"));
-        _logSplit.Panel2.Controls.Add(WithHeader(_botLog, "Bot connection activity"));
+        _logSplit.Panel2.Controls.Add(WithHeader(_botLog, "Bot activity"));
         split.Panel2.Controls.Add(_logSplit);
 
         Controls.Add(split);

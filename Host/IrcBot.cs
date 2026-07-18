@@ -357,26 +357,35 @@ public sealed class IrcBot
         }
     }
 
-    // Handle incoming PRIVMSG, replying to CTCP VERSION requests.
+    // Handle incoming PRIVMSG: surface messages and CTCP in the activity log,
+    // and reply to CTCP VERSION requests.
     private void HandlePrivmsg(string? sender, string body)
     {
         // body = "PRIVMSG <target> :<text>"
         var parts = body.Split(' ', 3);
         if (parts.Length < 3) return;
+        var target = parts[1];
         var text = parts[2];
         if (text.StartsWith(':')) text = text[1..];
+        var from = sender?.Split('!')[0] ?? "?";
 
         // CTCP is wrapped in \x01 … \x01
-        if (text.Length < 2 || text[0] != '\u0001' || text[^1] != '\u0001') return;
-        var inner = text.Trim('\u0001');
-        var from = sender?.Split('!')[0];
-        if (from == null) return;
-
-        if (inner.Equals("VERSION", StringComparison.OrdinalIgnoreCase))
+        if (text.Length >= 2 && text[0] == '\u0001' && text[^1] == '\u0001')
         {
-            Event($"CTCP VERSION from {from} → \"{CtcpVersion}\"");
-            Send($"NOTICE {from} :\u0001VERSION {CtcpVersion}\u0001");
+            var inner = text.Trim('\u0001');
+            var ctcpType = inner.Split(' ')[0].ToUpperInvariant();
+            if (ctcpType == "VERSION")
+            {
+                Event($"CTCP VERSION from {from} → \"{CtcpVersion}\"");
+                Send($"NOTICE {from} :\u0001VERSION {CtcpVersion}\u0001");
+            }
+            else Event($"CTCP {ctcpType} from {from}");
+            return;
         }
+
+        // Regular message the bot received (channel message or private message).
+        bool isChannel = target.StartsWith('#') || target.StartsWith('&');
+        Event(isChannel ? $"<{from}> {target}: {text}" : $"PM <{from}>: {text}");
     }
 
     private void Send(string line)

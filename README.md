@@ -102,10 +102,12 @@ green = connected, orange = connecting, red = error, grey = stopped/offline),
 channels, and last event. It auto-refreshes every 2 seconds while connected.
 
 Below the grid are two consoles: **Activity log** (panel/control activity and
-command results) and **Bot connection activity** — a live, per-bot IRC-level
-narrative streamed from the host (connecting, socket connected, TLS established,
-registering, connected, joining, PING/PONG, errors, disconnects), so you can
-see exactly what each bot is trying to do.
+command results) and **Bot activity** — a live, per-bot IRC-level narrative
+streamed from the host: connection lifecycle (connecting, TLS, registering,
+connected, joining, disconnects), **incoming messages** each bot receives
+(channel messages as `<nick> #chan: text`, private messages as `PM <nick>: …`),
+and **CTCP activity** (e.g. `CTCP VERSION from nick`), so you can see exactly
+what's happening to each bot.
 
 The bot list and the two consoles are separated by **draggable splitters**, so
 you can resize each pane up or down; each pane scrolls independently when its
